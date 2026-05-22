@@ -1,0 +1,98 @@
+# Electron Builder Configuration
+# https://www.electron.build/configuration
+
+appId: com.interview-assistant.app
+productName: Interview Assistant
+copyright: Copyright (c) 2024-2025 Interview Assistant
+
+# Directories
+directories:
+  output: dist
+  buildResources: assets
+
+# Files to include in the build
+files:
+  - "**/*"
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}"
+  - "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}"
+  - "!**/node_modules/.bin"
+  - "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}"
+  - "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}"
+  - "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}"
+  - "!**/{appveyor.yml,.travis.yml,circle.yml}"
+  - "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
+  # Exclude development and build files
+  - "!scripts/"
+  - "!build-assets/"
+  - "!build-temp/"
+  - "!unitTest/"
+  - "!tests/"
+  - "!docs/"
+  - "!**/*.md"
+  - "!.env.example"
+  - "!.env"
+  - "!.git*"
+  - "!.eslintrc*"
+  - "!tsconfig.json"
+  - "!temp_chunk_*.wav"
+
+# Extra resources that need to be unpacked
+extraResources:
+  - from: "node_modules/ffmpeg-static/"
+    to: "ffmpeg-static"
+    filter:
+      - "**/*"
+  - from: "assets/"
+    to: "assets"
+    filter:
+      - "**/*"
+
+# ASAR archiving (basic code protection)
+asar: true
+asarUnpack:
+  - "node_modules/ffmpeg-static/**/*"
+  - "assets/**/*"
+
+# Windows configuration
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.ico
+  publisherName: Interview Assistant
+  # Request admin rights for proper installation
+  requestedExecutionLevel: asInvoker
+  # Disable code signing (no certificate)
+  signAndEditExecutable: false
+  sign: null
+
+# NSIS Installer configuration
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Interview Assistant
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+  installerHeaderIcon: assets/icon.ico
+  installerSidebar: null
+  uninstallerSidebar: null
+  deleteAppDataOnUninstall: false
+  # Custom NSIS script options
+  artifactName: "${productName} Setup ${version}.${ext}"
+
+# Compression settings
+compression: maximum
+
+# Don't publish automatically
+publish: null
+
+# Disable code signing (avoids symlink privilege errors on Windows)
+forceCodeSigning: false
+
+# Electron version - explicitly set since electron is a devDependency
+electronVersion: "39.1.0"

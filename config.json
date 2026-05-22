@@ -1,0 +1,7 @@
+{
+  "audioDevice": "CABLE Output (VB-Audio Virtual Cable)",
+  "exportFormat": "json",
+  "useDefaultExportPath": true,
+  "customExportPath": "",
+  "autoExportOnSessionEnd": true
+}

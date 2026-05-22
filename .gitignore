@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build-temp/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Electron
+out/
+
+# Generated prep sheets (contain personal profile data)
+prep-sheets/
+
+# Personal notes
+temp-notes-for-myself/
+
+# Temporary audio chunks from FFmpeg capture
+temp_chunk_*.wav
+*.wav
+
+# Captured screenshots (RAG pipeline)
+capture-*.png
+
+# Secrets — plain license keys (hashed file is what the app uses)
+build-assets/license-keys-plain.txt
+
+# Local Claude settings
+.claude/settings.local.json

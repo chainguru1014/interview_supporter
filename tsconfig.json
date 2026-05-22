@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {},
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true
+  },
+  "include": ["**/*.ts", "**/*.tsx", "**/*.js"],
+  "exclude": ["dist", "out", "node_modules"]
+}

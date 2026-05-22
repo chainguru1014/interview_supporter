@@ -1,0 +1,33 @@
+{
+  "root": true,
+  "env": { "es2023": true, "node": true, "browser": true },
+  "ignorePatterns": ["dist", "out", "node_modules"],
+  "extends": ["eslint:recommended", "plugin:import/recommended", "prettier"],
+  "plugins": ["import"],
+  "overrides": [
+    {
+      "files": ["**/*.ts", "**/*.tsx"],
+      "parser": "@typescript-eslint/parser",
+      "parserOptions": { "sourceType": "module", "ecmaVersion": "latest" },
+      "plugins": ["@typescript-eslint"],
+      "extends": [
+        "plugin:@typescript-eslint/recommended",
+        "plugin:import/typescript"
+      ]
+    },
+    {
+      "files": ["main/**", "preload.*"],
+      "env": { "browser": false, "node": true }
+    },
+    {
+      "files": ["renderer/**", "index.html"],
+      "env": { "browser": true, "node": false }
+    }
+  ],
+  "settings": {
+    "import/resolver": {
+      "node": { "extensions": [".js", ".ts"] },
+      "typescript": { "alwaysTryTypes": true }
+    }
+  }
+}

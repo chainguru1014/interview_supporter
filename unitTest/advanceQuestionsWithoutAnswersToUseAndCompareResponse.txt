@@ -1,0 +1,61 @@
+Advanced & Difficult Anti-Cheat System Interview Questions and Answers
+
+Below are detailed answers to the 14 advanced anti-cheat developer questions for Unity, PlayFab, and Photon.
+
+Client-Side Security & Protection
+
+1. How would you prevent a cheater from injecting a DLL into your Unity game to modify runtime behavior? Explain your approach in detail.
+
+.................................................................................
+
+2. Explain how to detect and prevent a memory hack (e.g., modifying game variables like health or ammo) in a Unity multiplayer game.
+
+.................................................................................
+
+3. Describe an advanced method to obfuscate sensitive game logic to make it resistant to reverse engineering and decompilation.
+
+.................................................................................
+
+4. How do you detect and prevent external debugging tools such as Cheat Engine from modifying memory addresses in a Unity game?
+
+.................................................................................
+
+5. What techniques can be used to implement runtime integrity checks to ensure the game code hasn’t been modified during execution?
+
+.................................................................................
+
+6. How do you design an authoritative server model in Photon to prevent movement hacks while maintaining low latency?
+
+.................................................................................
+
+7. Describe an approach to detect and prevent speed hacking in an online multiplayer game using Photon.
+
+.................................................................................
+
+8. Explain how you would prevent an attacker from intercepting and modifying network packets in a Unity multiplayer game.
+
+.................................................................................
+
+9. What methods would you use to implement server-side validation for hit registration to prevent damage hacks?
+
+.................................................................................
+
+10. How would you design a machine learning-based system to detect aimbots in a skill-based multiplayer game?
+
+.................................................................................
+
+11. Explain how you would collect and analyze gameplay telemetry to detect cheating patterns over time.
+
+.................................................................................
+
+12. What statistical methods can be used to identify unnatural player behavior, such as impossible reaction times or movement patterns?
+
+.................................................................................
+
+13. How would you differentiate between a highly skilled player and an aimbot user using behavioral analysis?
+
+.................................................................................
+
+14. How would you prevent fraudulent transactions in a game’s wagering system?
+
+.................................................................................
