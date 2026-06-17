@@ -44,18 +44,24 @@ on the server and gives access to anyone who has the password you set.
    ```
    OPENAI_API_KEY=sk-your-key-here
    ACCESS_PASSWORD=pick-a-strong-password
-   PORT=3000
+   PORT=3002
    ```
    - `OPENAI_API_KEY` — required.
    - `ACCESS_PASSWORD` — required for public hosting. Without it the app is open
      to anyone with the URL (and will spend your credits).
-   - `PORT` — optional (defaults to 3000; many hosts set this for you).
+   - `PORT` — optional (defaults to 3002).
 
 3. Run it:
    ```bash
    npm run web
    ```
-   Open http://localhost:3000, enter the password, and you're in.
+   Open http://localhost:3002, enter the password, and you're in.
+
+   With pm2 (keeps it running across reboots/crashes):
+   ```bash
+   pm2 start npm --name interview-supporter -- run web
+   pm2 save
+   ```
 
 ## Deploying
 
@@ -73,14 +79,15 @@ Any Node host works. General steps:
 - Add env vars: `OPENAI_API_KEY`, `ACCESS_PASSWORD`
 - HTTPS is automatic.
 
-### Example: bare VPS (Ubuntu)
+### Example: bare VPS (Ubuntu) with pm2
 ```bash
-git clone <your-repo> && cd interview-assistant
+git clone <your-repo> && cd interview_supporter
 npm install
-# create .env with the keys
+# create .env with OPENAI_API_KEY, ACCESS_PASSWORD, PORT=3002
 npm install -g pm2
-pm2 start web/server.js --name interview-assistant
-# put nginx + certbot in front for HTTPS
+pm2 start npm --name interview-supporter -- run web
+pm2 save
+# put nginx + certbot in front for HTTPS (mic/screen capture needs HTTPS)
 ```
 
 ## Cost note
@@ -95,6 +102,6 @@ leaks. Whisper is ~$0.006/min of audio; gpt-4o answers cost per token.
 |---|---|---|---|
 | `OPENAI_API_KEY` | yes | — | OpenAI key (server-side only) |
 | `ACCESS_PASSWORD` | for public | — | Shared password gate |
-| `PORT` | no | 3000 | HTTP port |
+| `PORT` | no | 3002 | HTTP port |
 | `CHAT_MODEL` | no | gpt-4o | Streaming chat model |
 | `VISION_MODEL` | no | gpt-4o | Screen-analysis model |

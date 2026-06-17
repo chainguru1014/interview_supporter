@@ -38,7 +38,7 @@ const { buildPrompt, getVisionPrompt, getMeetingTypeList } = require('../service
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3002;
 const API_KEY = process.env.OPENAI_API_KEY || null;
 const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD || null;
 
