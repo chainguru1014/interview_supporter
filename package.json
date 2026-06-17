@@ -5,6 +5,7 @@
     "main": "main.js",
     "scripts": {
         "start": "node scripts/start-electron.js",
+        "web": "node web/server.js",
         "test": "node --test",
         "generate-keys": "node scripts/generate-keys.js",
         "create-icon": "node scripts/create-icon.js",
@@ -40,11 +41,13 @@
     "dependencies": {
         "axios": "^1.7.7",
         "dotenv": "^16.4.5",
+        "express": "^4.22.2",
         "ffmpeg-static": "^5.2.0",
         "fluent-ffmpeg": "^2.1.3",
         "form-data": "^4.0.5",
         "gpt-3-encoder": "^1.1.4",
         "mammoth": "^1.11.0",
+        "multer": "^1.4.5-lts.1",
         "openai": "^4.82.0",
         "pdf-parse": "^2.4.5",
         "tesseract.js": "^6.0.0",
@@ -77,7 +80,9 @@
             {
                 "from": "node_modules/ffmpeg-static/",
                 "to": "ffmpeg-static",
-                "filter": ["**/*"]
+                "filter": [
+                    "**/*"
+                ]
             }
         ],
         "asar": true,
@@ -85,7 +90,9 @@
             "node_modules/ffmpeg-static/**/*"
         ],
         "win": {
-            "target": ["nsis"],
+            "target": [
+                "nsis"
+            ],
             "icon": "assets/icon.ico"
         },
         "nsis": {

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Interview Assistant</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <!-- Login overlay -->
+    <div id="login" class="overlay">
+        <div class="login-card">
+            <h1>🎯 Interview Assistant</h1>
+            <p class="muted">Enter the access password to continue.</p>
+            <input id="loginPassword" type="password" placeholder="Access password" autocomplete="current-password" />
+            <button id="loginBtn">Enter</button>
+            <p id="loginError" class="error hidden"></p>
+        </div>
+    </div>
+
+    <div id="app" class="hidden">
+        <header>
+            <div class="brand">🎯 Interview Assistant <span class="tag">web</span></div>
+            <div class="header-controls">
+                <select id="meetingType" title="Meeting type"></select>
+                <button id="settingsBtn" class="ghost">⚙ Context</button>
+                <button id="logoutBtn" class="ghost">Log out</button>
+            </div>
+        </header>
+
+        <main>
+            <!-- Left: live transcript + controls -->
+            <section class="panel transcript-panel">
+                <div class="panel-head">
+                    <h2>Live transcript</h2>
+                    <div class="audio-controls">
+                        <select id="audioSource" title="Audio source">
+                            <option value="screen">Share tab/screen audio</option>
+                            <option value="mic">Microphone</option>
+                        </select>
+                        <button id="listenBtn" class="primary">▶ Start</button>
+                    </div>
+                </div>
+                <div class="status-row">
+                    <span id="status" class="status idle">Idle</span>
+                    <label class="auto-toggle">
+                        <input type="checkbox" id="autoRespond" /> Auto-answer
+                    </label>
+                    <button id="captureBtn" class="ghost small" title="Analyze the shared screen">📷 Analyze screen</button>
+                </div>
+                <div id="transcript" class="transcript" placeholder="Transcribed speech will appear here..."></div>
+                <div class="ask-row">
+                    <textarea id="questionInput" rows="2" placeholder="Type a question, or edit the transcript above..."></textarea>
+                    <button id="askBtn" class="primary">Get answer</button>
+                    <button id="clearBtn" class="ghost">Clear</button>
+                </div>
+            </section>
+
+            <!-- Right: AI answer -->
+            <section class="panel answer-panel">
+                <div class="panel-head">
+                    <h2>AI answer</h2>
+                </div>
+                <div id="answer" class="answer">
+                    <p class="muted">Answers will stream here.</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Settings / context modal -->
+    <div id="settings" class="overlay hidden">
+        <div class="settings-card">
+            <h2>Context</h2>
+            <p class="muted">Fill in what's relevant to your meeting type. Saved in this browser only.</p>
+            <div id="settingsFields"></div>
+            <div class="settings-actions">
+                <button id="saveSettings" class="primary">Save</button>
+                <button id="closeSettings" class="ghost">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

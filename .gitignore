@@ -42,4 +42,7 @@ capture-*.png
 build-assets/license-keys-plain.txt
 
 # Local Claude settings
-.claude/settings.local.json
+.claude/
+
+# Salesforce CLI cache (unrelated to this project)
+.sfdx/
