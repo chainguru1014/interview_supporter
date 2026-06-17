@@ -108,6 +108,43 @@ Result: **https://admin.innosynch.com** (3000) and **https://dpp.innosynch.com**
 listening on 3000/3001 (`curl http://localhost:3000` / `:3001` should respond),
 otherwise you'll get a 502.
 
+## API over HTTPS: api.innosynch.com (port 5052) — fixes the admin mixed-content/CORS error
+
+The admin frontend is served over HTTPS, so it **cannot** call `http://<ip>:5052`
+(browsers block HTTPS->HTTP "mixed content"). Expose the API over HTTPS instead
+and point the frontend at it.
+
+**Prerequisite:** add a DNS **A record** `api.innosynch.com` -> your server IP.
+
+```bash
+cd ~/interview_supporter && git pull
+sudo cp web/deploy/nginx/api.innosynch.com.conf /etc/nginx/sites-available/api.innosynch.com
+sudo ln -sf /etc/nginx/sites-available/api.innosynch.com /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d api.innosynch.com
+```
+
+Then rebuild the **admin frontend** to call the new URL. Find the env var name:
+```bash
+# in the admin project directory:
+grep -rn "5052\|REACT_APP" .env* src/ 2>/dev/null
+```
+Set it (e.g. in the admin project's `.env`):
+```
+REACT_APP_API_URL=https://api.innosynch.com
+```
+Rebuild and redeploy the admin app (`npm run build`, or restart its dev server),
+so the new API URL is baked in. Verify:
+```bash
+curl https://api.innosynch.com/user/login -i   # should reach the backend (not blocked)
+```
+
+> If you see a CORS error mentioning **multiple values** for
+> `Access-Control-Allow-Origin`, your backend already sets CORS headers — this
+> config strips them with `proxy_hide_header`, but double-check the backend
+> isn't adding the header *after* a redirect. If a different admin origin needs
+> access, add another `if ($http_origin = "https://other.example") { ... }` line.
+
 ## Troubleshooting
 
 | Symptom | Fix |
