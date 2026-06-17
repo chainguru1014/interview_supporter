@@ -5,6 +5,8 @@ node_modules/
 .env
 .env.local
 .env.*.local
+# Accidental dumps of env/secrets
+/data
 
 # Build output
 dist/
