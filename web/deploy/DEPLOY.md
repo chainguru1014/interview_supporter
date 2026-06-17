@@ -75,6 +75,39 @@ npm install            # only if dependencies changed
 pm2 restart interview-supporter
 ```
 
+## Additional domains: admin (3000) and dpp (3001)
+
+These proxy to your **other existing projects** (not this app):
+`admin.innosynch.com` -> port 3000, `dpp.innosynch.com` -> port 3001.
+
+**Prerequisite:** add DNS **A records** for `admin.innosynch.com` and
+`dpp.innosynch.com` pointing to the same server IP (just like `interview`).
+Without them certbot can't validate the domains.
+
+```bash
+cd ~/interview_supporter && git pull
+
+# (once) enable WebSocket support used by the admin/dpp configs
+sudo cp web/deploy/nginx/websocket-map.conf /etc/nginx/conf.d/websocket-map.conf
+#  ^ If `nginx -t` below complains that $connection_upgrade is already defined,
+#    you already have this map — remove the file: sudo rm /etc/nginx/conf.d/websocket-map.conf
+
+# install the two site configs
+sudo cp web/deploy/nginx/admin.innosynch.com.conf /etc/nginx/sites-available/admin.innosynch.com
+sudo cp web/deploy/nginx/dpp.innosynch.com.conf   /etc/nginx/sites-available/dpp.innosynch.com
+sudo ln -sf /etc/nginx/sites-available/admin.innosynch.com /etc/nginx/sites-enabled/
+sudo ln -sf /etc/nginx/sites-available/dpp.innosynch.com   /etc/nginx/sites-enabled/
+
+# test + reload, then get certs for both at once
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d admin.innosynch.com -d dpp.innosynch.com
+```
+
+Result: **https://admin.innosynch.com** (3000) and **https://dpp.innosynch.com**
+(3001) both work over HTTPS. Make sure those two apps are actually running and
+listening on 3000/3001 (`curl http://localhost:3000` / `:3001` should respond),
+otherwise you'll get a 502.
+
 ## Troubleshooting
 
 | Symptom | Fix |
