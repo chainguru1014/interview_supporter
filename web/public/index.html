@@ -24,10 +24,18 @@
             <div class="brand">🎯 Interview Assistant <span class="tag">web</span></div>
             <div class="header-controls">
                 <select id="meetingType" title="Meeting type"></select>
+                <button id="scheduleBtn" class="ghost">📅 Schedule</button>
                 <button id="settingsBtn" class="ghost">⚙ Context</button>
+                <button id="notifyBtn" class="ghost" title="Enable reminder notifications">🔔</button>
                 <button id="logoutBtn" class="ghost">Log out</button>
             </div>
         </header>
+
+        <!-- Active interview banner -->
+        <div id="activeBanner" class="active-banner hidden">
+            <span>▶ Active interview: <strong id="activeTitle"></strong> <span id="activeWhen" class="muted"></span></span>
+            <button id="clearActive" class="ghost small">Clear</button>
+        </div>
 
         <main>
             <!-- Left: live transcript + controls -->
@@ -59,25 +67,93 @@
 
             <!-- Right: AI answer -->
             <section class="panel answer-panel">
-                <div class="panel-head">
-                    <h2>AI answer</h2>
-                </div>
-                <div id="answer" class="answer">
-                    <p class="muted">Answers will stream here.</p>
-                </div>
+                <div class="panel-head"><h2>AI answer</h2></div>
+                <div id="answer" class="answer"><p class="muted">Answers will stream here.</p></div>
             </section>
         </main>
     </div>
 
-    <!-- Settings / context modal -->
+    <!-- Context (global candidate info) modal -->
     <div id="settings" class="overlay hidden">
         <div class="settings-card">
             <h2>Context</h2>
-            <p class="muted">Fill in what's relevant to your meeting type. Saved in this browser only.</p>
+            <p class="muted">Your candidate info — reused across every interview. Saved in this browser only.</p>
             <div id="settingsFields"></div>
             <div class="settings-actions">
                 <button id="saveSettings" class="primary">Save</button>
                 <button id="closeSettings" class="ghost">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Calendar modal -->
+    <div id="calendar" class="overlay hidden">
+        <div class="calendar-card">
+            <div class="cal-head">
+                <h2>📅 Interview schedule</h2>
+                <div class="cal-nav">
+                    <button id="calPrev" class="ghost small">‹</button>
+                    <span id="calMonth" class="cal-month"></span>
+                    <button id="calNext" class="ghost small">›</button>
+                    <button id="calToday" class="ghost small">Today</button>
+                </div>
+                <div class="cal-head-actions">
+                    <button id="addInterviewBtn" class="primary">＋ New interview</button>
+                    <button id="closeCalendar" class="ghost">Close</button>
+                </div>
+            </div>
+            <div id="calGrid" class="cal-grid"></div>
+            <div id="calUpcoming" class="cal-upcoming"></div>
+        </div>
+    </div>
+
+    <!-- Add / edit interview modal -->
+    <div id="scheduleForm" class="overlay hidden">
+        <div class="settings-card">
+            <h2 id="scheduleFormTitle">New interview</h2>
+            <div class="field-grid">
+                <div class="field"><label>Title *</label><input id="f_title" placeholder="e.g. Frontend round 1" /></div>
+                <div class="field"><label>Company</label><input id="f_company" /></div>
+                <div class="field"><label>Date *</label><input id="f_date" type="date" /></div>
+                <div class="field"><label>Time *</label><input id="f_time" type="time" /></div>
+                <div class="field field-wide"><label>Timezone</label><select id="f_tz"></select></div>
+                <div class="field"><label>Round / stage</label><input id="f_round" placeholder="e.g. Technical, HR, Final" /></div>
+                <div class="field"><label>Target job title</label><input id="f_jobTitle" /></div>
+            </div>
+            <div class="field"><label>Job description</label><textarea id="f_jobDescription"></textarea></div>
+            <div class="field"><label>Why this company</label><textarea id="f_whyThisCompany"></textarea></div>
+            <div class="field"><label>Reasons for leaving (per company)</label><textarea id="f_departureReasons"></textarea></div>
+
+            <div class="iv-section">
+                <div class="iv-section-head">
+                    <label>Interviewer(s)</label>
+                    <button id="addInterviewerBtn" class="ghost small">＋ Add interviewer</button>
+                </div>
+                <div id="interviewerList"></div>
+            </div>
+
+            <div class="field"><label>Notes</label><textarea id="f_notes"></textarea></div>
+
+            <div class="settings-actions">
+                <button id="saveInterview" class="primary">Save interview</button>
+                <button id="deleteInterview" class="ghost danger hidden">Delete</button>
+                <button id="closeScheduleForm" class="ghost">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Interview detail modal -->
+    <div id="interviewDetail" class="overlay hidden">
+        <div class="settings-card">
+            <div class="detail-head">
+                <h2 id="detailTitle"></h2>
+                <span id="detailCountdown" class="countdown"></span>
+            </div>
+            <div id="detailBody" class="detail-body"></div>
+            <div class="settings-actions">
+                <button id="useForInterview" class="primary">Use for this interview</button>
+                <button id="editInterview" class="ghost">Edit</button>
+                <button id="closeDetail" class="ghost">Close</button>
             </div>
         </div>
     </div>

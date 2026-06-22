@@ -11,7 +11,50 @@ const MEETING_PROFILES = {
         description: 'AI-powered interview coaching with STAR method guidance',
         contextFields: ['candidateInfo', 'projects', 'jobTitle', 'jobDescription', 'departureReasons', 'whyThisCompany'],
         buildSystemPrompt({ profileData, kbContext, lastQuestion }) {
-            const { jobTitle, jobDescription, candidateInfo, projects, departureReasons, whyThisCompany } = profileData;
+            const {
+                jobTitle, jobDescription, candidateInfo, projects, departureReasons, whyThisCompany,
+                // Personal / background details
+                fullName, dob, gender, nationality, workAuth, maritalStatus, phone, email, address,
+                fatherInfo, motherInfo, siblings, spouseChildren, languages, education, links, hobbies,
+                // Interviewer(s)
+                interviewers, company,
+            } = profileData;
+
+            // Build a compact "personal details" block, omitting empty fields.
+            const personalPairs = [
+                ['Full name', fullName],
+                ['Date of birth / age', dob],
+                ['Gender', gender],
+                ['Nationality / citizenship', nationality],
+                ['Work authorization / visa', workAuth],
+                ['Marital status', maritalStatus],
+                ['Phone', phone],
+                ['Email', email],
+                ['Home address', address],
+                ['Father (name / occupation)', fatherInfo],
+                ['Mother (name / occupation)', motherInfo],
+                ['Siblings', siblings],
+                ['Spouse / children', spouseChildren],
+                ['Languages', languages],
+                ['Education', education],
+                ['Links (LinkedIn / portfolio / GitHub)', links],
+                ['Hobbies / interests', hobbies],
+            ].filter(([, v]) => v && String(v).trim());
+            const personalBlock = personalPairs.length
+                ? personalPairs.map(([k, v]) => `  - ${k}: ${v}`).join('\n')
+                : '(not provided)';
+
+            // Build an "interviewer(s)" block from a structured list or fall back gracefully.
+            const ivList = Array.isArray(interviewers)
+                ? interviewers.filter((i) => i && (i.name || i.role || i.company))
+                : [];
+            const interviewerBlock = ivList.length
+                ? ivList.map((i) => {
+                    const head = [i.name, i.role, i.company ? `at ${i.company}` : ''].filter(Boolean).join(', ');
+                    return `  - ${head}${i.notes ? ` — ${i.notes}` : ''}`;
+                }).join('\n')
+                : '(not provided — treat all transcript speakers as interviewers)';
+
             return `
 You are an AI assistant generating answers in the first person AS the candidate during a job interview or recruiter screening call. Output exactly what the candidate should say.
 
@@ -168,6 +211,12 @@ If a question is ambiguous about who it refers to, **always default to: I am the
 - **Target Role:** ${jobTitle || '(not specified)'}
 - **Job Description:**
 ${jobDescription || '(not provided)'}
+
+- **Candidate Personal Details (authoritative — use these verbatim for personal/biographical questions about name, DOB/age, address, family, languages, education, etc.):**
+${personalBlock}
+
+- **Interviewer(s) on the other side of the table (you may greet them by name when natural; NEVER adopt their identity, employer, or history as your own):**
+${interviewerBlock}
 
 - **Candidate Background:**
 ${candidateInfo || '(not provided)'}
