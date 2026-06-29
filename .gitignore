@@ -8,6 +8,9 @@ node_modules/
 # Accidental dumps of env/secrets
 /data
 
+# Web server's shared workspace store (user data)
+web/data/
+
 # Build output
 dist/
 build-temp/

@@ -76,8 +76,9 @@
     <!-- Context (global candidate info) modal -->
     <div id="settings" class="overlay hidden">
         <div class="settings-card">
+            <button class="modal-close" title="Close">✕</button>
             <h2>Context</h2>
-            <p class="muted">Your candidate info — reused across every interview. Saved in this browser only.</p>
+            <p class="muted">Your candidate info — reused across every interview. Shared with everyone who has the password.</p>
             <div id="settingsFields"></div>
             <div class="settings-actions">
                 <button id="saveSettings" class="primary">Save</button>
@@ -89,6 +90,7 @@
     <!-- Calendar modal -->
     <div id="calendar" class="overlay hidden">
         <div class="calendar-card">
+            <button class="modal-close" title="Close">✕</button>
             <div class="cal-head">
                 <h2>📅 Interview schedule</h2>
                 <div class="cal-nav">
@@ -110,10 +112,12 @@
     <!-- Add / edit interview modal -->
     <div id="scheduleForm" class="overlay hidden">
         <div class="settings-card">
+            <button class="modal-close" title="Close">✕</button>
             <h2 id="scheduleFormTitle">New interview</h2>
             <div class="field-grid">
                 <div class="field"><label>Title *</label><input id="f_title" placeholder="e.g. Frontend round 1" /></div>
                 <div class="field"><label>Company</label><input id="f_company" /></div>
+                <div class="field field-wide"><label>Meeting type</label><select id="f_meetingType"></select></div>
                 <div class="field"><label>Date *</label><input id="f_date" type="date" /></div>
                 <div class="field"><label>Time *</label><input id="f_time" type="time" /></div>
                 <div class="field field-wide"><label>Timezone</label><select id="f_tz"></select></div>
@@ -145,6 +149,7 @@
     <!-- Interview detail modal -->
     <div id="interviewDetail" class="overlay hidden">
         <div class="settings-card">
+            <button class="modal-close" title="Close">✕</button>
             <div class="detail-head">
                 <h2 id="detailTitle"></h2>
                 <span id="detailCountdown" class="countdown"></span>

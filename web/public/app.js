@@ -1,10 +1,14 @@
 /* Interview Assistant — web client
  *
- * Talks to the Node backend (server.js). The OpenAI key never touches this
- * file; everything goes through /api/* with the access password header.
+ * The OpenAI key never touches this file; everything goes through /api/* with
+ * the access password header.
  *
- * Features: live transcription, streaming AI answers, screen analysis,
- * a rich Context form, and an interview scheduler with a calendar + reminders.
+ * Context + scheduled interviews are stored ON THE SERVER (shared workspace),
+ * so everyone using the same password sees the same data. Clients poll for
+ * changes so a save on one device shows up on the others automatically.
+ *
+ * Reminder "already fired" flags are kept per-browser (localStorage) so each
+ * device shows its own notifications independently.
  */
 
 // ---- State ----------------------------------------------------------------
@@ -18,9 +22,13 @@ let recorder = null;
 let history = [];
 let answering = false;
 
-let calYear, calMonth;                 // calendar view (month is 0-based)
-let editingInterviewId = null;         // interview being edited in the form
-let detailInterviewId = null;          // interview shown in the detail modal
+// Shared, server-backed data
+let DATA = { rev: -1, profile: {}, interviews: [] };
+let pushing = false;
+
+let calYear, calMonth;
+let editingInterviewId = null;
+let detailInterviewId = null;
 let activeInterviewId = localStorage.getItem('ia_activeInterview') || null;
 
 const $ = (id) => document.getElementById(id);
@@ -87,15 +95,61 @@ async function startApp() {
     $('login').classList.add('hidden');
     $('app').classList.remove('hidden');
     await loadMeetingTypes();
-    buildSettingsFields();
     populateTimezones();
+    populateScheduleMeetingTypes();
+    // hydrate quickly from cache, then pull authoritative data from the server
+    hydrateCache();
+    await loadData();
+    buildSettingsFields();
     const now = new Date();
     calYear = now.getFullYear(); calMonth = now.getMonth();
     refreshActiveBanner();
     updateNotifyButton();
-    // Reminder loop (fires while the tab is open)
     checkReminders();
     setInterval(checkReminders, 20000);
+    setInterval(loadData, 12000);     // sync shared data across clients
+}
+
+// ===========================================================================
+// Server-backed shared store
+// ===========================================================================
+function hydrateCache() {
+    try {
+        const c = JSON.parse(localStorage.getItem('ia_cache') || 'null');
+        if (c && typeof c === 'object') DATA = Object.assign({ rev: -1, profile: {}, interviews: [] }, c);
+    } catch (e) { /* ignore */ }
+}
+
+async function loadData() {
+    if (pushing) return;
+    try {
+        const res = await api('/api/data');
+        const d = await res.json();
+        if (d.rev === DATA.rev) return;     // no change
+        DATA = { rev: d.rev, profile: d.profile || {}, interviews: d.interviews || [] };
+        localStorage.setItem('ia_cache', JSON.stringify(DATA));
+        // Refresh visible views (don't clobber a Context form being edited)
+        if ($('settings').classList.contains('hidden')) buildSettingsFields();
+        if (!$('calendar').classList.contains('hidden')) renderCalendar();
+        refreshActiveBanner();
+        checkReminders();
+    } catch (e) { /* offline / auth — keep cached data */ }
+}
+
+async function pushData() {
+    pushing = true;
+    localStorage.setItem('ia_cache', JSON.stringify(DATA));   // optimistic cache
+    try {
+        const res = await api('/api/data', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ profile: DATA.profile, interviews: DATA.interviews }),
+        });
+        const d = await res.json();
+        DATA.rev = d.rev;
+        localStorage.setItem('ia_cache', JSON.stringify(DATA));
+    } catch (e) {
+        console.warn('save to server failed:', e.message);
+    } finally { pushing = false; }
 }
 
 // ===========================================================================
@@ -114,12 +168,18 @@ async function loadMeetingTypes() {
     sel.onchange = () => { localStorage.setItem('ia_meetingType', sel.value); buildSettingsFields(); };
 }
 
+function populateScheduleMeetingTypes() {
+    const sel = $('f_meetingType');
+    if (!sel) return;
+    sel.innerHTML = meetingTypes.map((t) => `<option value="${t.key}">${t.icon} ${t.label}</option>`).join('');
+}
+
 function currentType() {
     return meetingTypes.find((t) => t.key === $('meetingType').value) || meetingTypes[0];
 }
 
 // ===========================================================================
-// Context (global candidate info)
+// Context (global candidate info) — stored on the server
 // ===========================================================================
 const FIELD_META = {
     fullName: { label: 'Full name' },
@@ -145,7 +205,6 @@ const FIELD_META = {
     jobDescription: { label: 'Default job description', type: 'textarea', full: true },
     whyThisCompany: { label: 'Default: why this company', type: 'textarea', full: true },
     departureReasons: { label: 'Default: reasons for leaving', type: 'textarea', full: true },
-    // generic fields for non-interview meeting types
     meetingAgenda: { label: 'Meeting agenda', type: 'textarea', full: true },
     teamContext: { label: 'Team context', type: 'textarea', full: true },
     previousNotes: { label: 'Previous notes', type: 'textarea', full: true },
@@ -160,11 +219,11 @@ const INTERVIEW_GROUPS = [
     { title: 'Default role (optional — a scheduled interview overrides these)', fields: ['jobTitle', 'jobDescription', 'whyThisCompany', 'departureReasons'] },
 ];
 
-function getGlobalProfile() { return JSON.parse(localStorage.getItem('ia_profile') || '{}'); }
+function getGlobalProfile() { return DATA.profile || {}; }
+function getInterviews() { return DATA.interviews || []; }
 
-function fieldHTML(key, value) {
+function fieldHTML(key) {
     const m = FIELD_META[key] || { label: key };
-    const v = value || '';
     const cls = m.full ? 'field full' : 'field';
     const input = m.type === 'textarea'
         ? `<textarea data-field="${key}"></textarea>`
@@ -183,23 +242,23 @@ function buildSettingsFields() {
         INTERVIEW_GROUPS.forEach((g) => {
             const group = document.createElement('div');
             group.className = 'field-group';
-            group.innerHTML = `<h3>${g.title}</h3><div class="group-grid">${g.fields.map((f) => fieldHTML(f, data[f])).join('')}</div>`;
+            group.innerHTML = `<h3>${g.title}</h3><div class="group-grid">${g.fields.map((f) => fieldHTML(f)).join('')}</div>`;
             wrap.appendChild(group);
         });
     } else {
         const grid = document.createElement('div');
         grid.className = 'group-grid';
-        grid.innerHTML = (type.contextFields || []).map((f) => fieldHTML(f, data[f])).join('');
+        grid.innerHTML = (type.contextFields || []).map((f) => fieldHTML(f)).join('');
         wrap.appendChild(grid);
     }
-    // set values (textarea content can't be set via the template above)
     wrap.querySelectorAll('[data-field]').forEach((el) => { el.value = data[el.dataset.field] || ''; });
 }
 
 function saveSettings() {
-    const data = getGlobalProfile();
+    const data = Object.assign({}, getGlobalProfile());
     document.querySelectorAll('#settingsFields [data-field]').forEach((el) => { data[el.dataset.field] = el.value; });
-    localStorage.setItem('ia_profile', JSON.stringify(data));
+    DATA.profile = data;
+    pushData();
     $('settings').classList.add('hidden');
 }
 
@@ -218,11 +277,8 @@ function getProfileData() {
 }
 
 // ===========================================================================
-// Scheduling — storage + timezones
+// Scheduling — timezones
 // ===========================================================================
-function getInterviews() { return JSON.parse(localStorage.getItem('ia_interviews') || '[]'); }
-function saveInterviews(list) { localStorage.setItem('ia_interviews', JSON.stringify(list)); }
-
 const LOCAL_TZ = (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
 const TZ_LIST = ['UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
     'America/Sao_Paulo', 'Europe/London', 'Europe/Berlin', 'Europe/Paris', 'Europe/Moscow',
@@ -235,7 +291,6 @@ function populateTimezones() {
     sel.innerHTML = list.map((t) => `<option value="${t}">${t}${t === LOCAL_TZ ? ' (your timezone)' : ''}</option>`).join('');
 }
 
-// Offset (ms) of a timezone at a given instant.
 function tzOffsetMs(tz, date) {
     const dtf = new Intl.DateTimeFormat('en-US', {
         timeZone: tz, hour12: false,
@@ -247,7 +302,6 @@ function tzOffsetMs(tz, date) {
     return asUTC - date.getTime();
 }
 
-// Convert wall-clock (in tz) -> epoch ms (handles DST reasonably).
 function interviewEpoch(iv) {
     if (!iv.date || !iv.time) return NaN;
     const [y, mo, d] = iv.date.split('-').map(Number);
@@ -281,15 +335,13 @@ function relTime(epoch) {
 // ===========================================================================
 function renderCalendar() {
     const grid = $('calGrid');
-    const monthName = new Date(calYear, calMonth, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
-    $('calMonth').textContent = monthName;
+    $('calMonth').textContent = new Date(calYear, calMonth, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
     const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     let html = dows.map((d) => `<div class="cal-dow">${d}</div>`).join('');
 
     const first = new Date(calYear, calMonth, 1);
-    const startDow = first.getDay();
-    const start = new Date(calYear, calMonth, 1 - startDow);
+    const start = new Date(calYear, calMonth, 1 - first.getDay());
     const todayStr = `${new Date().getFullYear()}-${pad(new Date().getMonth() + 1)}-${pad(new Date().getDate())}`;
     const interviews = getInterviews();
 
@@ -298,9 +350,7 @@ function renderCalendar() {
         const ds = `${cur.getFullYear()}-${pad(cur.getMonth() + 1)}-${pad(cur.getDate())}`;
         const other = cur.getMonth() !== calMonth ? ' other' : '';
         const today = ds === todayStr ? ' today' : '';
-        const dayEvents = interviews
-            .filter((iv) => iv.date === ds)
-            .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+        const dayEvents = interviews.filter((iv) => iv.date === ds).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
         const evHtml = dayEvents.map((iv) => {
             const past = interviewEpoch(iv) < Date.now() ? ' past' : '';
             return `<div class="cal-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}">${iv.time || ''} ${escapeHtml(iv.title)}</div>`;
@@ -309,24 +359,16 @@ function renderCalendar() {
     }
     grid.innerHTML = html;
 
-    grid.querySelectorAll('.cal-event').forEach((el) => {
-        el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); };
-    });
-    grid.querySelectorAll('.cal-cell').forEach((el) => {
-        el.onclick = () => openScheduleForm(null, el.dataset.date);
-    });
-
+    grid.querySelectorAll('.cal-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
+    grid.querySelectorAll('.cal-cell').forEach((el) => { el.onclick = () => openScheduleForm(null, el.dataset.date); });
     renderUpcoming();
 }
 
 function renderUpcoming() {
     const box = $('calUpcoming');
     const now = Date.now();
-    const up = getInterviews()
-        .map((iv) => ({ iv, ep: interviewEpoch(iv) }))
-        .filter((x) => x.ep >= now)
-        .sort((a, b) => a.ep - b.ep)
-        .slice(0, 5);
+    const up = getInterviews().map((iv) => ({ iv, ep: interviewEpoch(iv) }))
+        .filter((x) => x.ep >= now).sort((a, b) => a.ep - b.ep).slice(0, 5);
     if (!up.length) { box.innerHTML = '<h3>Upcoming</h3><p class="muted">No upcoming interviews.</p>'; return; }
     box.innerHTML = '<h3>Upcoming</h3>' + up.map(({ iv, ep }) => `
         <div class="upcoming-item" data-iv="${iv.id}">
@@ -364,6 +406,7 @@ function openScheduleForm(id, presetDate) {
     $('scheduleFormTitle').textContent = iv ? 'Edit interview' : 'New interview';
     $('f_title').value = iv?.title || '';
     $('f_company').value = iv?.company || '';
+    $('f_meetingType').value = iv?.meetingType || 'interview';
     $('f_date').value = iv?.date || presetDate || '';
     $('f_time').value = iv?.time || '';
     $('f_tz').value = iv?.tz || LOCAL_TZ;
@@ -395,11 +438,13 @@ function saveInterview() {
     const time = $('f_time').value;
     if (!title || !date || !time) { alert('Title, date and time are required.'); return; }
 
-    const list = getInterviews();
+    const list = getInterviews().slice();
     const existing = editingInterviewId ? list.find((x) => x.id === editingInterviewId) : null;
     const iv = existing || { id: uid() };
     Object.assign(iv, {
-        title, company: $('f_company').value.trim(), date, time, tz: $('f_tz').value,
+        title, company: $('f_company').value.trim(),
+        meetingType: $('f_meetingType').value || 'interview',
+        date, time, tz: $('f_tz').value,
         round: $('f_round').value.trim(),
         jobTitle: $('f_jobTitle').value.trim(),
         jobDescription: $('f_jobDescription').value.trim(),
@@ -407,10 +452,11 @@ function saveInterview() {
         departureReasons: $('f_departureReasons').value.trim(),
         interviewers: collectInterviewers(),
         notes: $('f_notes').value.trim(),
-        fired: { d1440: false, d60: false, d10: false }, // reschedule reminders on save
     });
     if (!existing) list.push(iv);
-    saveInterviews(list);
+    DATA.interviews = list;
+    pushData();
+    resetFired(iv.id);   // reschedule this device's reminders
 
     if ('Notification' in window && Notification.permission === 'default') requestNotifyPermission();
 
@@ -423,7 +469,8 @@ function saveInterview() {
 function deleteInterview() {
     if (!editingInterviewId) return;
     if (!confirm('Delete this interview?')) return;
-    saveInterviews(getInterviews().filter((x) => x.id !== editingInterviewId));
+    DATA.interviews = getInterviews().filter((x) => x.id !== editingInterviewId);
+    pushData();
     if (activeInterviewId === editingInterviewId) { activeInterviewId = null; localStorage.removeItem('ia_activeInterview'); refreshActiveBanner(); }
     $('scheduleForm').classList.add('hidden');
     $('calendar').classList.remove('hidden');
@@ -440,11 +487,13 @@ function openDetail(id) {
     if (!iv) return;
     detailInterviewId = id;
     const ep = interviewEpoch(iv);
+    const mt = meetingTypes.find((t) => t.key === (iv.meetingType || 'interview'));
     $('detailTitle').textContent = iv.title;
     $('detailCountdown').textContent = isNaN(ep) ? '' : relTime(ep);
     const ivText = (iv.interviewers || []).map((i) => [i.name, i.role, i.company ? 'at ' + i.company : ''].filter(Boolean).join(', ')).join('\n');
     $('detailBody').innerHTML =
         detailRow('When', `${fmtInTz(ep, iv.tz || LOCAL_TZ)}  (${iv.tz || LOCAL_TZ})`) +
+        detailRow('Meeting type', mt ? `${mt.icon} ${mt.label}` : (iv.meetingType || '')) +
         detailRow('Company', iv.company) +
         detailRow('Round / stage', iv.round) +
         detailRow('Target job title', iv.jobTitle) +
@@ -459,10 +508,12 @@ function openDetail(id) {
 
 function useForInterview() {
     if (!detailInterviewId) return;
+    const iv = getInterviews().find((x) => x.id === detailInterviewId);
     activeInterviewId = detailInterviewId;
     localStorage.setItem('ia_activeInterview', activeInterviewId);
-    $('meetingType').value = 'interview';
-    localStorage.setItem('ia_meetingType', 'interview');
+    const mt = (iv && iv.meetingType) || 'interview';
+    $('meetingType').value = mt;
+    localStorage.setItem('ia_meetingType', mt);
     buildSettingsFields();
     refreshActiveBanner();
     $('interviewDetail').classList.add('hidden');
@@ -479,13 +530,16 @@ function refreshActiveBanner() {
 }
 
 // ===========================================================================
-// Notifications / reminders (fire while the tab is open)
+// Reminders (per-browser fired tracking; fire while the tab is open)
 // ===========================================================================
 const MARKS = [
     { key: 'd1440', mins: 1440, label: '1 day' },
     { key: 'd60', mins: 60, label: '1 hour' },
     { key: 'd10', mins: 10, label: '10 minutes' },
 ];
+function getFiredMap() { try { return JSON.parse(localStorage.getItem('ia_fired') || '{}'); } catch (e) { return {}; } }
+function setFiredMap(m) { localStorage.setItem('ia_fired', JSON.stringify(m)); }
+function resetFired(id) { const m = getFiredMap(); delete m[id]; setFiredMap(m); }
 
 function updateNotifyButton() {
     const btn = $('notifyBtn');
@@ -503,22 +557,21 @@ async function requestNotifyPermission() {
 function checkReminders() {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     const now = Date.now();
-    const list = getInterviews();
+    const fired = getFiredMap();
     let changed = false;
-    list.forEach((iv) => {
+    getInterviews().forEach((iv) => {
         const ep = interviewEpoch(iv);
-        if (isNaN(ep) || ep < now) return;          // skip past / invalid
-        iv.fired = iv.fired || {};
+        if (isNaN(ep) || ep < now) return;
+        fired[iv.id] = fired[iv.id] || {};
         MARKS.forEach((mk) => {
-            const markTime = ep - mk.mins * 60000;
-            if (now >= markTime && !iv.fired[mk.key]) {
+            if (now >= ep - mk.mins * 60000 && !fired[iv.id][mk.key]) {
                 fireReminder(iv, mk.label, ep);
-                iv.fired[mk.key] = true;
+                fired[iv.id][mk.key] = true;
                 changed = true;
             }
         });
     });
-    if (changed) saveInterviews(list);
+    if (changed) setFiredMap(fired);
 }
 
 function fireReminder(iv, label, ep) {
@@ -527,14 +580,8 @@ function fireReminder(iv, label, ep) {
             body: `${iv.company ? iv.company + ' · ' : ''}${fmtInTz(ep, iv.tz || LOCAL_TZ)}`,
             tag: iv.id + label,
         });
-        n.onclick = () => { window.focus(); openCalendarThenDetail(iv.id); n.close(); };
+        n.onclick = () => { window.focus(); $('calendar').classList.remove('hidden'); renderCalendar(); openDetail(iv.id); n.close(); };
     } catch (e) { /* ignore */ }
-}
-
-function openCalendarThenDetail(id) {
-    $('calendar').classList.remove('hidden');
-    renderCalendar();
-    openDetail(id);
 }
 
 // ===========================================================================
@@ -720,11 +767,9 @@ $('loginPassword').addEventListener('keydown', (e) => { if (e.key === 'Enter') d
 $('logoutBtn').onclick = logout;
 
 $('settingsBtn').onclick = () => { buildSettingsFields(); $('settings').classList.remove('hidden'); };
-$('closeSettings').onclick = () => $('settings').classList.add('hidden');
 $('saveSettings').onclick = saveSettings;
 
 $('scheduleBtn').onclick = () => { $('calendar').classList.remove('hidden'); renderCalendar(); };
-$('closeCalendar').onclick = () => $('calendar').classList.add('hidden');
 $('calPrev').onclick = () => { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendar(); };
 $('calNext').onclick = () => { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderCalendar(); };
 $('calToday').onclick = () => { const n = new Date(); calYear = n.getFullYear(); calMonth = n.getMonth(); renderCalendar(); };
@@ -752,5 +797,10 @@ $('clearBtn').onclick = () => {
     history = [];
 };
 $('questionInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) getAnswer(); });
+
+// ✕ close buttons on any modal card
+document.querySelectorAll('.modal-close').forEach((btn) => {
+    btn.onclick = () => { const ov = btn.closest('.overlay'); if (ov) ov.classList.add('hidden'); };
+});
 
 init();

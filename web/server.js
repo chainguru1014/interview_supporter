@@ -81,6 +81,28 @@ const upload = multer({
     limits: { fileSize: 25 * 1024 * 1024 }, // Whisper's 25MB limit
 });
 
+// --- Shared data store (Context + interviews), synced across all clients -----
+// Everyone using the same access password shares one workspace, so we keep a
+// single JSON store on disk. `rev` lets clients detect changes and refetch.
+const DATA_DIR = path.join(__dirname, 'data');
+const STORE_FILE = path.join(DATA_DIR, 'store.json');
+let store = { rev: 0, profile: {}, interviews: [] };
+try {
+    if (fs.existsSync(STORE_FILE)) {
+        store = Object.assign(store, JSON.parse(fs.readFileSync(STORE_FILE, 'utf8')));
+    }
+} catch (err) {
+    console.error('[store] could not read store.json, starting empty:', err.message);
+}
+function persistStore() {
+    try {
+        if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+        fs.writeFileSync(STORE_FILE, JSON.stringify(store));
+    } catch (err) {
+        console.error('[store] write failed:', err.message);
+    }
+}
+
 // --- Auth gate for all API routes -----------------------------------------
 // Uses a constant-time comparison to avoid leaking the password via timing.
 function checkPassword(provided) {
@@ -123,6 +145,20 @@ app.use('/api', requireAuth);
 // --- Meeting types --------------------------------------------------------
 app.get('/api/meeting-types', (req, res) => {
     res.json(getMeetingTypeList());
+});
+
+// --- Shared workspace data (Context profile + scheduled interviews) ---------
+app.get('/api/data', (req, res) => {
+    res.json({ rev: store.rev || 0, profile: store.profile || {}, interviews: store.interviews || [] });
+});
+
+app.put('/api/data', (req, res) => {
+    const { profile, interviews } = req.body || {};
+    if (profile && typeof profile === 'object') store.profile = profile;
+    if (Array.isArray(interviews)) store.interviews = interviews;
+    store.rev = (store.rev || 0) + 1;
+    persistStore();
+    res.json({ rev: store.rev });
 });
 
 // --- Transcription (Whisper) ----------------------------------------------

@@ -41,6 +41,15 @@ body {
     padding: 28px;
     box-shadow: 0 20px 60px rgba(0,0,0,0.5);
 }
+.login-card, .settings-card, .calendar-card { position: relative; }
+.modal-close {
+    position: absolute; top: 12px; right: 12px;
+    background: var(--panel-2); color: var(--muted); border: 1px solid var(--border);
+    width: 32px; height: 32px; border-radius: 8px; padding: 0; font-size: 15px; line-height: 1;
+    display: flex; align-items: center; justify-content: center; z-index: 2;
+}
+.modal-close:hover { background: var(--border); color: var(--text); }
+
 .login-card { width: 380px; max-width: 92vw; }
 .settings-card { width: 620px; max-width: 94vw; max-height: 88vh; overflow-y: auto; }
 .calendar-card { width: 920px; max-width: 96vw; max-height: 90vh; overflow-y: auto; }
