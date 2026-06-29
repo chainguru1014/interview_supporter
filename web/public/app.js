@@ -770,6 +770,7 @@ $('settingsBtn').onclick = () => { buildSettingsFields(); $('settings').classLis
 $('saveSettings').onclick = saveSettings;
 
 $('scheduleBtn').onclick = () => { $('calendar').classList.remove('hidden'); renderCalendar(); };
+$('closeCalendar').onclick = () => { $('calendar').classList.add('hidden'); };
 $('calPrev').onclick = () => { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendar(); };
 $('calNext').onclick = () => { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderCalendar(); };
 $('calToday').onclick = () => { const n = new Date(); calYear = n.getFullYear(); calMonth = n.getMonth(); renderCalendar(); };
