@@ -23,7 +23,7 @@ let history = [];
 let answering = false;
 
 // Shared, server-backed data
-let DATA = { rev: -1, profile: {}, interviews: [] };
+let DATA = { rev: -1, profile: {}, interviews: [], timeSlots: [] };
 let pushing = false;
 
 let calYear, calMonth, calDay;
@@ -117,7 +117,7 @@ async function startApp() {
 function hydrateCache() {
     try {
         const c = JSON.parse(localStorage.getItem('ia_cache') || 'null');
-        if (c && typeof c === 'object') DATA = Object.assign({ rev: -1, profile: {}, interviews: [] }, c);
+        if (c && typeof c === 'object') DATA = Object.assign({ rev: -1, profile: {}, interviews: [], timeSlots: [] }, c);
     } catch (e) { /* ignore */ }
 }
 
@@ -127,7 +127,7 @@ async function loadData() {
         const res = await api('/api/data');
         const d = await res.json();
         if (d.rev === DATA.rev) return;     // no change
-        DATA = { rev: d.rev, profile: d.profile || {}, interviews: d.interviews || [] };
+        DATA = { rev: d.rev, profile: d.profile || {}, interviews: d.interviews || [], timeSlots: d.timeSlots || [] };
         localStorage.setItem('ia_cache', JSON.stringify(DATA));
         // Refresh visible views (don't clobber a Context form being edited)
         if ($('settings').classList.contains('hidden')) buildSettingsFields();
@@ -143,7 +143,7 @@ async function pushData() {
     try {
         const res = await api('/api/data', {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ profile: DATA.profile, interviews: DATA.interviews }),
+            body: JSON.stringify({ profile: DATA.profile, interviews: DATA.interviews, timeSlots: DATA.timeSlots }),
         });
         const d = await res.json();
         DATA.rev = d.rev;
@@ -222,6 +222,109 @@ const INTERVIEW_GROUPS = [
 
 function getGlobalProfile() { return DATA.profile || {}; }
 function getInterviews() { return DATA.interviews || []; }
+function getTimeSlots() { return DATA.timeSlots || []; }
+
+// ===========================================================================
+// Time slot availability (independent of individual interviews)
+// ===========================================================================
+function getUsTzInfo(dateStr, timeStr) {
+    if (!dateStr || !timeStr) return null;
+    const dt = new Date(`${dateStr}T${timeStr}`);
+    if (isNaN(dt)) return null;
+    const fmtTz = (tz) => {
+        const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true }).formatToParts(dt);
+        const h = parseInt(parts.find(p => p.type === 'hour')?.value || 0);
+        const pm = /pm/i.test(parts.find(p => p.type === 'dayperiod')?.value || '');
+        const h24 = pm ? (h === 12 ? 12 : h + 12) : (h === 12 ? 0 : h);
+        const str = parts.filter(p => ['hour','literal','minute','dayperiod'].includes(p.type)).map(p => p.value).join('');
+        return { str, h24, inBiz: h24 >= 9 && h24 < 18 };
+    };
+    const et = fmtTz('America/New_York');
+    const pt = fmtTz('America/Los_Angeles');
+    return { et, pt, anyInBiz: et.inBiz || pt.inBiz };
+}
+
+function slotConflictsWithInterviews(dateStr, startTime, endTime) {
+    if (!dateStr || !startTime) return [];
+    const s0 = new Date(`${dateStr}T${startTime}`).getTime();
+    const s1 = endTime ? new Date(`${dateStr}T${endTime}`).getTime() : s0 + 3600000;
+    return getInterviews().filter(iv => {
+        if (iv.date !== dateStr || !iv.time) return false;
+        const i0 = new Date(`${iv.date}T${iv.time}`).getTime();
+        const i1 = i0 + 3600000;
+        return s0 < i1 && s1 > i0;
+    }).map(iv => iv.title);
+}
+
+function updateTsRowInfo(row) {
+    const dateStr = row.querySelector('.ts-date').value;
+    const startTime = row.querySelector('.ts-start').value;
+    const endTime = row.querySelector('.ts-end').value;
+    const infoEl = row.querySelector('.ts-info');
+    const usTimes = row.querySelector('.ts-us-times');
+    const bizWarn = row.querySelector('.ts-biz-warn');
+    const ivConflict = row.querySelector('.ts-iv-conflict');
+    if (!dateStr || !startTime) { infoEl.classList.add('hidden'); return; }
+    infoEl.classList.remove('hidden');
+    const tz = getUsTzInfo(dateStr, startTime);
+    if (tz) {
+        usTimes.textContent = `🌎 ET: ${tz.et.str}  ·  PT: ${tz.pt.str}`;
+        bizWarn.classList.toggle('hidden', tz.anyInBiz);
+    }
+    const conflicts = slotConflictsWithInterviews(dateStr, startTime, endTime || null);
+    ivConflict.classList.toggle('hidden', !conflicts.length);
+    if (conflicts.length) ivConflict.textContent = `⚠ Conflicts: ${conflicts.slice(0, 2).join(', ')}${conflicts.length > 2 ? '…' : ''}`;
+}
+
+function addTsRow(data = {}) {
+    const row = document.createElement('div');
+    row.className = 'ts-row';
+    row.dataset.tsid = data.id || uid();
+    row.innerHTML = `
+        <div class="ts-fields">
+            <input type="date" class="ts-date" />
+            <input type="time" class="ts-start" />
+            <span class="ts-sep">–</span>
+            <input type="time" class="ts-end" />
+            <button class="ts-remove" title="Remove slot">×</button>
+        </div>
+        <div class="ts-info hidden">
+            <span class="ts-us-times"></span>
+            <span class="ts-biz-warn">⚠ Outside US business hours (9 AM–6 PM ET/PT)</span>
+            <span class="ts-iv-conflict hidden"></span>
+        </div>`;
+    row.querySelector('.ts-date').value = data.date || '';
+    row.querySelector('.ts-start').value = data.startTime || '';
+    row.querySelector('.ts-end').value = data.endTime || '';
+    const refresh = () => updateTsRowInfo(row);
+    row.querySelector('.ts-date').addEventListener('input', refresh);
+    row.querySelector('.ts-start').addEventListener('input', refresh);
+    row.querySelector('.ts-end').addEventListener('input', refresh);
+    row.querySelector('.ts-remove').onclick = () => row.remove();
+    $('tsSlotList').appendChild(row);
+    if (data.date && data.startTime) updateTsRowInfo(row);
+}
+
+function openTimeSlotForm() {
+    $('tsSlotList').innerHTML = '';
+    const slots = getTimeSlots();
+    if (slots.length === 0) addTsRow();
+    else slots.forEach(s => addTsRow(s));
+    $('timeSlotForm').classList.remove('hidden');
+}
+
+function saveTimeSlots() {
+    const slots = Array.from($('tsSlotList').querySelectorAll('.ts-row')).map(row => ({
+        id: row.dataset.tsid,
+        date: row.querySelector('.ts-date').value,
+        startTime: row.querySelector('.ts-start').value,
+        endTime: row.querySelector('.ts-end').value,
+    })).filter(s => s.date && s.startTime);
+    DATA.timeSlots = slots;
+    pushData();
+    $('timeSlotForm').classList.add('hidden');
+    renderCalendar();
+}
 
 function fieldHTML(key) {
     const m = FIELD_META[key] || { label: key };
@@ -397,10 +500,14 @@ function renderMonthView() {
             const past = interviewEpoch(iv) < Date.now() ? ' past' : '';
             return `<div class="cal-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}">${iv.time || ''} ${escapeHtml(iv.title)}</div>`;
         }).join('');
-        html += `<div class="cal-cell${other}${today}" data-date="${ds}"><div class="daynum">${cur.getDate()}</div>${evHtml}</div>`;
+        const tsHtml = getTimeSlots().filter(s => s.date === ds).map(s =>
+            `<div class="cal-ts" data-tsid="${escapeHtml(s.id)}" title="${s.startTime}${s.endTime ? '–' + s.endTime : ''}">${s.startTime}${s.endTime ? '–' + s.endTime : ''}</div>`
+        ).join('');
+        html += `<div class="cal-cell${other}${today}" data-date="${ds}"><div class="daynum">${cur.getDate()}</div>${evHtml}${tsHtml}</div>`;
     }
     grid.innerHTML = html;
     grid.querySelectorAll('.cal-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
+    grid.querySelectorAll('.cal-ts').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openTimeSlotForm(); }; });
     grid.querySelectorAll('.cal-cell').forEach((el) => { el.onclick = () => openScheduleForm(null, el.dataset.date); });
     renderUpcoming();
 }
@@ -429,7 +536,10 @@ function renderWeekView() {
                 const past = interviewEpoch(iv) < Date.now() ? ' past' : '';
                 return `<div class="wg-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}">${iv.time} ${escapeHtml(iv.title)}</div>`;
             }).join('');
-            html += `<div class="wg-cell${isToday}" data-date="${ds}" data-time="${timeStr}">${evHtml}</div>`;
+            const tsHtml = getTimeSlots().filter(s => s.date === ds && s.startTime && parseInt(s.startTime) === h).map(s =>
+                `<div class="wg-ts" data-tsid="${escapeHtml(s.id)}">${s.startTime}${s.endTime ? '–' + s.endTime : ''}</div>`
+            ).join('');
+            html += `<div class="wg-cell${isToday}" data-date="${ds}" data-time="${timeStr}">${evHtml}${tsHtml}</div>`;
         });
     });
     html += `</div>`;
@@ -438,6 +548,7 @@ function renderWeekView() {
     grid.className = 'cal-week-day-grid';
     grid.innerHTML = html;
     grid.querySelectorAll('.wg-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
+    grid.querySelectorAll('.wg-ts').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openTimeSlotForm(); }; });
     grid.querySelectorAll('.wg-cell').forEach((el) => {
         el.onclick = () => openScheduleForm(null, el.dataset.date, el.dataset.time);
     });
@@ -461,7 +572,10 @@ function renderDayView() {
             const past = interviewEpoch(iv) < Date.now() ? ' past' : '';
             return `<div class="wg-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}">${iv.time} ${escapeHtml(iv.title)}</div>`;
         }).join('');
-        html += `<div class="wg-time">${hLabel}</div><div class="wg-cell${isToday ? ' today-col' : ''}" data-date="${ds}" data-time="${timeStr}">${evHtml}</div>`;
+        const tsHtml = getTimeSlots().filter(s => s.date === ds && s.startTime && parseInt(s.startTime) === h).map(s =>
+            `<div class="wg-ts" data-tsid="${escapeHtml(s.id)}">${s.startTime}${s.endTime ? '–' + s.endTime : ''}</div>`
+        ).join('');
+        html += `<div class="wg-time">${hLabel}</div><div class="wg-cell${isToday ? ' today-col' : ''}" data-date="${ds}" data-time="${timeStr}">${evHtml}${tsHtml}</div>`;
     });
     html += `</div>`;
 
@@ -469,6 +583,7 @@ function renderDayView() {
     grid.className = 'cal-week-day-grid';
     grid.innerHTML = html;
     grid.querySelectorAll('.wg-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
+    grid.querySelectorAll('.wg-ts').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openTimeSlotForm(); }; });
     grid.querySelectorAll('.wg-cell').forEach((el) => {
         el.onclick = () => openScheduleForm(null, el.dataset.date, el.dataset.time);
     });
@@ -511,36 +626,6 @@ function addInterviewerRow(data = {}) {
     $('interviewerList').appendChild(row);
 }
 
-function addAvailSlotRow(data = {}) {
-    const row = document.createElement('div');
-    row.className = 'avail-row';
-    row.innerHTML = `
-        <input type="date" data-av="date" />
-        <input type="time" data-av="startTime" />
-        <span class="avail-sep">–</span>
-        <input type="time" data-av="endTime" placeholder="end (opt.)" />
-        <button class="ghost small avail-pick" title="Use this slot for the interview date &amp; time">Use</button>
-        <button class="avail-remove" title="Remove">×</button>`;
-    row.querySelector('[data-av="date"]').value = data.date || '';
-    row.querySelector('[data-av="startTime"]').value = data.startTime || '';
-    row.querySelector('[data-av="endTime"]').value = data.endTime || '';
-    row.querySelector('.avail-pick').onclick = () => {
-        const d = row.querySelector('[data-av="date"]').value;
-        const t = row.querySelector('[data-av="startTime"]').value;
-        if (d) $('f_date').value = d;
-        if (t) $('f_time').value = t;
-    };
-    row.querySelector('.avail-remove').onclick = () => row.remove();
-    $('availSlotList').appendChild(row);
-}
-
-function collectAvailability() {
-    return Array.from($('availSlotList').querySelectorAll('.avail-row')).map((row) => ({
-        date: row.querySelector('[data-av="date"]').value,
-        startTime: row.querySelector('[data-av="startTime"]').value,
-        endTime: row.querySelector('[data-av="endTime"]').value,
-    })).filter((s) => s.date || s.startTime);
-}
 
 function openScheduleForm(id, presetDate, presetTime) {
     editingInterviewId = id;
@@ -562,8 +647,6 @@ function openScheduleForm(id, presetDate, presetTime) {
     $('f_notes').value = iv?.notes || '';
     $('interviewerList').innerHTML = '';
     (iv?.interviewers && iv.interviewers.length ? iv.interviewers : [{}]).forEach(addInterviewerRow);
-    $('availSlotList').innerHTML = '';
-    (iv?.availabilitySlots || []).forEach(addAvailSlotRow);
     $('deleteInterview').classList.toggle('hidden', !iv);
     $('calendar').classList.add('hidden');
     $('interviewDetail').classList.add('hidden');
@@ -598,7 +681,6 @@ function saveInterview() {
         jobDescription: $('f_jobDescription').value.trim(),
         whyThisCompany: $('f_whyThisCompany').value.trim(),
         departureReasons: $('f_departureReasons').value.trim(),
-        availabilitySlots: collectAvailability(),
         interviewers: collectInterviewers(),
         notes: $('f_notes').value.trim(),
     });
@@ -643,9 +725,6 @@ function openDetail(id) {
     const meetingUrlHtml = iv.meetingUrl
         ? `<div class="detail-row"><span class="k">Meeting URL</span><span class="v"><a href="${escapeHtml(iv.meetingUrl)}" target="_blank" rel="noopener">${escapeHtml(iv.meetingUrl)}</a></span></div>`
         : '';
-    const availHtml = (iv.availabilitySlots || []).length
-        ? `<div class="detail-row"><span class="k">Availability</span><span class="v">${iv.availabilitySlots.map((s) => `${s.date || ''}${s.startTime ? ' ' + s.startTime : ''}${s.endTime ? ' – ' + s.endTime : ''}`).join('\n')}</span></div>`
-        : '';
     $('detailBody').innerHTML =
         detailRow('When', `${fmtInTz(ep, iv.tz || LOCAL_TZ)}  (${iv.tz || LOCAL_TZ})`) +
         meetingUrlHtml +
@@ -657,7 +736,6 @@ function openDetail(id) {
         detailRow('Job description', iv.jobDescription) +
         detailRow('Why this company', iv.whyThisCompany) +
         detailRow('Reasons for leaving', iv.departureReasons) +
-        availHtml +
         detailRow('Interviewer(s)', ivText) +
         detailRow('Notes', iv.notes);
     $('calendar').classList.add('hidden');
@@ -928,7 +1006,6 @@ $('settingsBtn').onclick = () => { buildSettingsFields(); $('settings').classLis
 $('saveSettings').onclick = saveSettings;
 
 $('scheduleBtn').onclick = () => { $('calendar').classList.remove('hidden'); renderCalendar(); };
-$('closeCalendar').onclick = () => { $('calendar').classList.add('hidden'); };
 $('calPrev').onclick = () => {
     if (calView === 'day') { shiftDate(-1); }
     else if (calView === 'week') { shiftDate(-7); }
@@ -946,9 +1023,13 @@ $('calViewDay').onclick   = () => { calView = 'day';   localStorage.setItem('ia_
 $('calViewWeek').onclick  = () => { calView = 'week';  localStorage.setItem('ia_calView', calView); renderCalendar(); };
 $('calViewMonth').onclick = () => { calView = 'month'; localStorage.setItem('ia_calView', calView); renderCalendar(); };
 $('addInterviewBtn').onclick = () => openScheduleForm(null, null);
+$('addTimeSlotBtn').onclick = openTimeSlotForm;
+
+$('tsAddBtn').onclick = () => addTsRow();
+$('tsSave').onclick = saveTimeSlots;
+$('tsCancel').onclick = () => $('timeSlotForm').classList.add('hidden');
 
 $('addInterviewerBtn').onclick = () => addInterviewerRow();
-$('addAvailSlotBtn').onclick = () => addAvailSlotRow();
 $('saveInterview').onclick = saveInterview;
 $('deleteInterview').onclick = deleteInterview;
 $('closeScheduleForm').onclick = () => { $('scheduleForm').classList.add('hidden'); $('calendar').classList.remove('hidden'); };
@@ -975,6 +1056,5 @@ $('questionInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' &&
 document.querySelectorAll('.modal-close').forEach((btn) => {
     btn.onclick = () => { const ov = btn.closest('.overlay'); if (ov) ov.classList.add('hidden'); };
 });
-$('closeCalendar').onclick = () => $('calendar').classList.add('hidden');
 
 init();

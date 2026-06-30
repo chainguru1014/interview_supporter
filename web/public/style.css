@@ -174,15 +174,29 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 
 .iv-hint { margin: 4px 0 8px; font-size: 12px; color: var(--muted); }
 
-/* ---- Availability slots ---- */
-.avail-row { display: grid; grid-template-columns: auto auto 16px auto auto auto; gap: 6px; margin-top: 8px; align-items: center; }
-.avail-row input[type="date"], .avail-row input[type="time"] { font-size: 13px; }
-.avail-row .avail-sep { color: var(--muted); font-size: 12px; text-align: center; }
-.avail-pick { font-size: 12px; padding: 4px 10px; }
-.avail-remove { background: none; border: none; color: var(--red); font-size: 18px; padding: 0 4px; cursor: pointer; }
+/* ---- Time slot chips in calendar ---- */
+.cal-ts { font-size: 11px; background: rgba(46,204,113,0.18); color: var(--green); border: 1px solid rgba(46,204,113,0.35); border-radius: 4px; padding: 2px 5px; margin-top: 2px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-ts:hover { background: rgba(46,204,113,0.32); }
+.wg-ts { font-size: 11px; background: rgba(46,204,113,0.18); color: var(--green); border: 1px solid rgba(46,204,113,0.35); border-radius: 4px; padding: 2px 6px; margin-bottom: 2px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wg-ts:hover { background: rgba(46,204,113,0.32); }
+
+/* ---- Time slot form rows ---- */
+.ts-row { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 10px; background: var(--panel-2); }
+.ts-fields { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ts-fields input[type="date"], .ts-fields input[type="time"] { font-size: 13px; }
+.ts-sep { color: var(--muted); font-size: 13px; }
+.ts-remove { background: none; border: none; color: var(--red); font-size: 20px; padding: 0 2px; cursor: pointer; margin-left: auto; line-height: 1; }
+.ts-info { margin-top: 6px; font-size: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.ts-us-times { color: var(--muted); }
+.ts-biz-warn { color: var(--amber); }
+.ts-iv-conflict { color: var(--red); }
+.ts-add-btn { color: var(--green); border-color: var(--green); }
+.ts-add-btn:hover { background: rgba(46,204,113,0.15); }
 
 /* ---- Calendar ---- */
-.cal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.cal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; padding-right: 44px; }
+.cal-head-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.cal-head-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cal-view-toggle { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .cal-view-btn { border-radius: 0; background: var(--panel-2); color: var(--muted); border: none; border-right: 1px solid var(--border); padding: 5px 13px; font-size: 13px; cursor: pointer; }
 .cal-view-btn:last-child { border-right: none; }
@@ -206,8 +220,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .wg-event.past { background: #444b57; }
 .cal-head h2 { margin: 0; font-size: 18px; }
 .cal-nav { display: flex; align-items: center; gap: 8px; }
-.cal-month { font-weight: 600; min-width: 150px; text-align: center; }
-.cal-head-actions { display: flex; gap: 8px; }
+.cal-month { font-weight: 600; min-width: 110px; text-align: center; }
 
 .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .cal-dow { text-align: center; font-size: 11px; color: var(--muted); text-transform: uppercase; padding: 4px 0; }

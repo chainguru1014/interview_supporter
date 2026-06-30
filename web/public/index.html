@@ -90,22 +90,25 @@
     <!-- Calendar modal -->
     <div id="calendar" class="overlay hidden">
         <div class="calendar-card">
+            <button id="closeCalendar" class="modal-close" title="Close">✕</button>
             <div class="cal-head">
-                <h2>📅 Interview schedule</h2>
-                <div class="cal-nav">
-                    <button id="calPrev" class="ghost small">‹</button>
-                    <span id="calMonth" class="cal-month"></span>
-                    <button id="calNext" class="ghost small">›</button>
-                    <button id="calToday" class="ghost small">Today</button>
+                <div class="cal-head-left">
+                    <h2>📅 Interview schedule</h2>
+                    <div class="cal-nav">
+                        <button id="calPrev" class="ghost small">‹</button>
+                        <span id="calMonth" class="cal-month"></span>
+                        <button id="calNext" class="ghost small">›</button>
+                        <button id="calToday" class="ghost small">Today</button>
+                    </div>
                 </div>
-                <div class="cal-view-toggle">
-                    <button id="calViewDay" class="cal-view-btn">Day</button>
-                    <button id="calViewWeek" class="cal-view-btn">Week</button>
-                    <button id="calViewMonth" class="cal-view-btn">Month</button>
-                </div>
-                <div class="cal-head-actions">
-                    <button id="addInterviewBtn" class="primary">＋ New interview</button>
-                    <button id="closeCalendar" class="modal-close-inline" title="Close">✕</button>
+                <div class="cal-head-right">
+                    <div class="cal-view-toggle">
+                        <button id="calViewDay" class="cal-view-btn">Day</button>
+                        <button id="calViewWeek" class="cal-view-btn">Week</button>
+                        <button id="calViewMonth" class="cal-view-btn">Month</button>
+                    </div>
+                    <button id="addInterviewBtn" class="primary small">＋ New interview</button>
+                    <button id="addTimeSlotBtn" class="ghost small ts-add-btn">＋ Time slot</button>
                 </div>
             </div>
             <div id="calGrid" class="cal-grid"></div>
@@ -136,15 +139,6 @@
 
             <div class="iv-section">
                 <div class="iv-section-head">
-                    <label>Candidate Availability</label>
-                    <button id="addAvailSlotBtn" class="ghost small">＋ Add slot</button>
-                </div>
-                <p class="iv-hint">Add the candidate's proposed time slots, then click <strong>Use</strong> to auto-fill the scheduled date &amp; time above.</p>
-                <div id="availSlotList"></div>
-            </div>
-
-            <div class="iv-section">
-                <div class="iv-section-head">
                     <label>Interviewer(s)</label>
                     <button id="addInterviewerBtn" class="ghost small">＋ Add interviewer</button>
                 </div>
@@ -157,6 +151,21 @@
                 <button id="saveInterview" class="primary">Save interview</button>
                 <button id="deleteInterview" class="ghost danger hidden">Delete</button>
                 <button id="closeScheduleForm" class="ghost">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Time slot availability dialog -->
+    <div id="timeSlotForm" class="overlay hidden">
+        <div class="settings-card">
+            <button class="modal-close" title="Close">✕</button>
+            <h2>📋 Availability slots</h2>
+            <p class="iv-hint">Propose time windows for your client. Each slot shows the equivalent US timezone (ET / PT). A warning appears when neither timezone falls in business hours (9 AM–6 PM). Click any slot on the calendar to manage slots here.</p>
+            <div id="tsSlotList"></div>
+            <button id="tsAddBtn" class="ghost small" style="margin-top:12px">＋ Add slot</button>
+            <div class="settings-actions">
+                <button id="tsSave" class="primary">Save slots</button>
+                <button id="tsCancel" class="ghost">Cancel</button>
             </div>
         </div>
     </div>
