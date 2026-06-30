@@ -148,6 +148,15 @@ button.active { background: var(--red) !important; color: #fff; }
 button.danger { color: var(--red); border-color: var(--red); }
 button:disabled { opacity: .5; cursor: not-allowed; }
 
+/* ---- Person account bar (in Context modal) ---- */
+.person-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 4px; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; }
+.person-chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+.person-chip { background: var(--panel); border: 1px solid var(--border); color: var(--muted); border-radius: 20px; padding: 4px 14px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.person-chip:hover { background: var(--border); color: var(--text); }
+.person-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.person-bar-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.person-empty { font-size: 13px; color: var(--muted); font-style: italic; }
+
 /* ---- Settings / context fields ---- */
 .field { margin-top: 14px; }
 .field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }

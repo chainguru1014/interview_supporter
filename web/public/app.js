@@ -23,7 +23,7 @@ let history = [];
 let answering = false;
 
 // Shared, server-backed data
-let DATA = { rev: -1, profile: {}, interviews: [], timeSlots: [] };
+let DATA = { rev: -1, persons: [], activePersonId: null, interviews: [], timeSlots: [] };
 let pushing = false;
 
 let calYear, calMonth, calDay;
@@ -125,7 +125,7 @@ async function startApp() {
 function hydrateCache() {
     try {
         const c = JSON.parse(localStorage.getItem('ia_cache') || 'null');
-        if (c && typeof c === 'object') DATA = Object.assign({ rev: -1, profile: {}, interviews: [], timeSlots: [] }, c);
+        if (c && typeof c === 'object') DATA = Object.assign({ rev: -1, persons: [], activePersonId: null, interviews: [], timeSlots: [] }, c);
     } catch (e) { /* ignore */ }
 }
 
@@ -135,7 +135,16 @@ async function loadData() {
         const res = await api('/api/data');
         const d = await res.json();
         if (d.rev === DATA.rev) return;     // no change
-        DATA = { rev: d.rev, profile: d.profile || {}, interviews: d.interviews || [], timeSlots: d.timeSlots || [] };
+        const incomingPersons = Array.isArray(d.persons) ? d.persons : [];
+        // One-time migration: if server has old single-profile but no persons array yet
+        if (incomingPersons.length === 0 && d.profile && Object.keys(d.profile).length > 0) {
+            const id = 'p_' + Math.random().toString(36).slice(2, 10);
+            DATA = { rev: d.rev, persons: [{ id, name: d.profile.fullName || 'Default', ...d.profile }], activePersonId: id, interviews: d.interviews || [], timeSlots: d.timeSlots || [] };
+            localStorage.setItem('ia_cache', JSON.stringify(DATA));
+            pushData();
+            return;
+        }
+        DATA = { rev: d.rev, persons: incomingPersons, activePersonId: d.activePersonId || incomingPersons[0]?.id || null, interviews: d.interviews || [], timeSlots: d.timeSlots || [] };
         localStorage.setItem('ia_cache', JSON.stringify(DATA));
         // Refresh visible views (don't clobber a Context form being edited)
         if ($('settings').classList.contains('hidden')) buildSettingsFields();
@@ -151,7 +160,7 @@ async function pushData() {
     try {
         const res = await api('/api/data', {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ profile: DATA.profile, interviews: DATA.interviews, timeSlots: DATA.timeSlots }),
+            body: JSON.stringify({ persons: DATA.persons, activePersonId: DATA.activePersonId, interviews: DATA.interviews, timeSlots: DATA.timeSlots }),
         });
         const d = await res.json();
         DATA.rev = d.rev;
@@ -228,7 +237,12 @@ const INTERVIEW_GROUPS = [
     { title: 'Default role (optional — a scheduled interview overrides these)', fields: ['jobTitle', 'jobDescription', 'whyThisCompany', 'departureReasons'] },
 ];
 
-function getGlobalProfile() { return DATA.profile || {}; }
+function getPersons() { return DATA.persons || []; }
+function getActivePersonId() { return DATA.activePersonId || getPersons()[0]?.id || null; }
+function getGlobalProfile() {
+    const id = getActivePersonId();
+    return (id ? getPersons().find((p) => p.id === id) : getPersons()[0]) || {};
+}
 function getInterviews() { return DATA.interviews || []; }
 function getTimeSlots() { return DATA.timeSlots || []; }
 
@@ -350,7 +364,73 @@ function fieldHTML(key) {
     return `<div class="${cls}"><label>${m.label}</label>${input}</div>`;
 }
 
+function buildPersonBar() {
+    const persons = getPersons();
+    const activeId = getActivePersonId();
+    const chips = $('personChips');
+    if (!chips) return;
+    chips.innerHTML = '';
+    if (persons.length === 0) {
+        chips.innerHTML = '<span class="person-empty">No accounts yet — click ＋ Add</span>';
+        return;
+    }
+    persons.forEach((p) => {
+        const chip = document.createElement('button');
+        chip.className = 'person-chip' + (p.id === activeId ? ' active' : '');
+        chip.textContent = p.name || '(unnamed)';
+        chip.onclick = () => setActivePerson(p.id);
+        chips.appendChild(chip);
+    });
+}
+
+function setActivePerson(id) {
+    DATA.activePersonId = id;
+    buildPersonBar();
+    buildSettingsFields();
+}
+
+function addPerson() {
+    const name = prompt('Name for new account:');
+    if (!name || !name.trim()) return;
+    const id = 'p_' + Math.random().toString(36).slice(2, 10);
+    const persons = getPersons().slice();
+    persons.push({ id, name: name.trim() });
+    DATA.persons = persons;
+    DATA.activePersonId = id;
+    buildPersonBar();
+    buildSettingsFields();
+}
+
+function renamePerson() {
+    const id = getActivePersonId();
+    if (!id) { alert('No account selected.'); return; }
+    const persons = getPersons().slice();
+    const p = persons.find((x) => x.id === id);
+    if (!p) return;
+    const name = prompt('New name for this account:', p.name || '');
+    if (!name || !name.trim()) return;
+    p.name = name.trim();
+    DATA.persons = persons;
+    buildPersonBar();
+}
+
+function deletePerson() {
+    const persons = getPersons().slice();
+    if (persons.length <= 1) { alert('Cannot delete the last account.'); return; }
+    const id = getActivePersonId();
+    if (!id) return;
+    const p = persons.find((x) => x.id === id);
+    if (!p) return;
+    if (!confirm(`Delete account "${p.name}"? This cannot be undone.`)) return;
+    const filtered = persons.filter((x) => x.id !== id);
+    DATA.persons = filtered;
+    DATA.activePersonId = filtered[0]?.id || null;
+    buildPersonBar();
+    buildSettingsFields();
+}
+
 function buildSettingsFields() {
+    buildPersonBar();
     const type = currentType();
     if (!type) return;
     const data = getGlobalProfile();
@@ -374,18 +454,31 @@ function buildSettingsFields() {
 }
 
 function saveSettings() {
-    const data = Object.assign({}, getGlobalProfile());
-    document.querySelectorAll('#settingsFields [data-field]').forEach((el) => { data[el.dataset.field] = el.value; });
-    DATA.profile = data;
+    const persons = getPersons().slice();
+    const id = getActivePersonId();
+    let idx = persons.findIndex((p) => p.id === id);
+    if (idx < 0) {
+        // No persons yet — create a default one
+        const newId = 'p_' + Math.random().toString(36).slice(2, 10);
+        const newPerson = { id: newId, name: 'Default' };
+        persons.push(newPerson);
+        idx = persons.length - 1;
+        DATA.activePersonId = newId;
+    }
+    const updated = Object.assign({}, persons[idx]);
+    document.querySelectorAll('#settingsFields [data-field]').forEach((el) => { updated[el.dataset.field] = el.value; });
+    persons[idx] = updated;
+    DATA.persons = persons;
     pushData();
     $('settings').classList.add('hidden');
 }
 
-// The profile sent to the AI: global info, overridden by the active interview.
+// The profile sent to the AI: person info (from interview's linked person or active person),
+// overridden by interview-specific fields.
 function getProfileData() {
-    const global = getGlobalProfile();
-    if (!activeInterviewId) return global;
-    const iv = getInterviews().find((x) => x.id === activeInterviewId);
+    const iv = activeInterviewId ? getInterviews().find((x) => x.id === activeInterviewId) : null;
+    const linkedPerson = iv?.personId ? getPersons().find((p) => p.id === iv.personId) : null;
+    const global = linkedPerson || getGlobalProfile();
     if (!iv) return global;
     const merged = { ...global };
     ['jobTitle', 'jobDescription', 'whyThisCompany', 'departureReasons', 'company'].forEach((k) => {
@@ -872,10 +965,20 @@ function addInterviewerRow(data = {}) {
 }
 
 
+function populatePersonSelect() {
+    const sel = $('f_personId');
+    if (!sel) return;
+    const persons = getPersons();
+    sel.innerHTML = '<option value="">(no specific account)</option>' +
+        persons.map((p) => `<option value="${p.id}">${escapeHtml(p.name || '(unnamed)')}</option>`).join('');
+}
+
 function openScheduleForm(id, presetDate, presetTime) {
     editingInterviewId = id;
     const iv = id ? getInterviews().find((x) => x.id === id) : null;
     $('scheduleFormTitle').textContent = iv ? 'Edit interview' : 'New interview';
+    populatePersonSelect();
+    $('f_personId').value = iv?.personId || getActivePersonId() || '';
     $('f_title').value = iv?.title || '';
     $('f_company').value = iv?.company || '';
     $('f_meetingUrl').value = iv?.meetingUrl || '';
@@ -916,6 +1019,7 @@ function saveInterview() {
     const existing = editingInterviewId ? list.find((x) => x.id === editingInterviewId) : null;
     const iv = existing || { id: uid() };
     Object.assign(iv, {
+        personId: $('f_personId').value || null,
         title, company: $('f_company').value.trim(),
         meetingUrl: $('f_meetingUrl').value.trim(),
         meetingType: $('f_meetingType').value || 'interview',
@@ -970,7 +1074,9 @@ function openDetail(id) {
     const meetingUrlHtml = iv.meetingUrl
         ? `<div class="detail-row"><span class="k">Meeting URL</span><span class="v"><a href="${escapeHtml(iv.meetingUrl)}" target="_blank" rel="noopener">${escapeHtml(iv.meetingUrl)}</a></span></div>`
         : '';
+    const linkedPerson = iv.personId ? getPersons().find((p) => p.id === iv.personId) : null;
     $('detailBody').innerHTML =
+        (linkedPerson ? detailRow('Account', linkedPerson.name || '(unnamed)') : '') +
         detailRow('When', `${fmtInTz(ep, iv.tz || LOCAL_TZ)}  (${iv.tz || LOCAL_TZ})`) +
         meetingUrlHtml +
         detailRow('Meeting type', mt ? `${mt.icon} ${mt.label}` : (iv.meetingType || '')) +
@@ -1249,6 +1355,9 @@ $('logoutBtn').onclick = logout;
 
 $('settingsBtn').onclick = () => { buildSettingsFields(); $('settings').classList.remove('hidden'); };
 $('saveSettings').onclick = saveSettings;
+$('addPersonBtn').onclick = addPerson;
+$('renamePersonBtn').onclick = renamePerson;
+$('deletePersonBtn').onclick = deletePerson;
 
 $('scheduleBtn').onclick = () => { $('calendar').classList.remove('hidden'); renderCalendar(); };
 $('calPrev').onclick = () => {

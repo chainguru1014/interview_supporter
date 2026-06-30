@@ -78,7 +78,15 @@
         <div class="settings-card">
             <button class="modal-close" title="Close">✕</button>
             <h2>Context</h2>
-            <p class="muted">Your candidate info — reused across every interview. Shared with everyone who has the password.</p>
+            <p class="muted">Candidate info per account — reused across every interview. Shared with everyone who has the password.</p>
+            <div id="personBar" class="person-bar">
+                <div id="personChips" class="person-chips"></div>
+                <div class="person-bar-actions">
+                    <button id="addPersonBtn" class="ghost small">＋ Add</button>
+                    <button id="renamePersonBtn" class="ghost small">✏ Rename</button>
+                    <button id="deletePersonBtn" class="ghost small danger">🗑 Delete</button>
+                </div>
+            </div>
             <div id="settingsFields"></div>
             <div class="settings-actions">
                 <button id="saveSettings" class="primary">Save</button>
@@ -144,6 +152,7 @@
             <button class="modal-close" title="Close">✕</button>
             <h2 id="scheduleFormTitle">New interview</h2>
             <div class="field-grid">
+                <div class="field field-wide"><label>Person / account</label><select id="f_personId"></select></div>
                 <div class="field"><label>Title *</label><input id="f_title" placeholder="e.g. Frontend round 1" /></div>
                 <div class="field"><label>Company</label><input id="f_company" /></div>
                 <div class="field field-wide"><label>Meeting URL</label><input id="f_meetingUrl" type="url" placeholder="https://meet.google.com/..." /></div>

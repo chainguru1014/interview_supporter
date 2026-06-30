@@ -86,7 +86,7 @@ const upload = multer({
 // single JSON store on disk. `rev` lets clients detect changes and refetch.
 const DATA_DIR = path.join(__dirname, 'data');
 const STORE_FILE = path.join(DATA_DIR, 'store.json');
-let store = { rev: 0, profile: {}, interviews: [], timeSlots: [] };
+let store = { rev: 0, profile: {}, persons: [], activePersonId: null, interviews: [], timeSlots: [] };
 try {
     if (fs.existsSync(STORE_FILE)) {
         store = Object.assign(store, JSON.parse(fs.readFileSync(STORE_FILE, 'utf8')));
@@ -149,12 +149,21 @@ app.get('/api/meeting-types', (req, res) => {
 
 // --- Shared workspace data (Context profile + scheduled interviews) ---------
 app.get('/api/data', (req, res) => {
-    res.json({ rev: store.rev || 0, profile: store.profile || {}, interviews: store.interviews || [], timeSlots: store.timeSlots || [] });
+    res.json({
+        rev: store.rev || 0,
+        profile: store.profile || {},
+        persons: store.persons || [],
+        activePersonId: store.activePersonId || null,
+        interviews: store.interviews || [],
+        timeSlots: store.timeSlots || [],
+    });
 });
 
 app.put('/api/data', (req, res) => {
-    const { profile, interviews, timeSlots } = req.body || {};
+    const { profile, persons, activePersonId, interviews, timeSlots } = req.body || {};
     if (profile && typeof profile === 'object') store.profile = profile;
+    if (Array.isArray(persons)) store.persons = persons;
+    if (activePersonId !== undefined) store.activePersonId = activePersonId;
     if (Array.isArray(interviews)) store.interviews = interviews;
     if (Array.isArray(timeSlots)) store.timeSlots = timeSlots;
     store.rev = (store.rev || 0) + 1;
