@@ -26,7 +26,8 @@ let answering = false;
 let DATA = { rev: -1, profile: {}, interviews: [] };
 let pushing = false;
 
-let calYear, calMonth;
+let calYear, calMonth, calDay;
+let calView = localStorage.getItem('ia_calView') || 'month';
 let editingInterviewId = null;
 let detailInterviewId = null;
 let activeInterviewId = localStorage.getItem('ia_activeInterview') || null;
@@ -102,7 +103,7 @@ async function startApp() {
     await loadData();
     buildSettingsFields();
     const now = new Date();
-    calYear = now.getFullYear(); calMonth = now.getMonth();
+    calYear = now.getFullYear(); calMonth = now.getMonth(); calDay = now.getDate();
     refreshActiveBanner();
     updateNotifyButton();
     checkReminders();
@@ -333,21 +334,62 @@ function relTime(epoch) {
 // ===========================================================================
 // Calendar
 // ===========================================================================
-function renderCalendar() {
-    const grid = $('calGrid');
-    $('calMonth').textContent = new Date(calYear, calMonth, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+const CAL_HOURS = Array.from({ length: 15 }, (_, i) => i + 8); // 8 AM – 10 PM
 
+function dsStr(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+
+function weekStart(year, month, day) {
+    const d = new Date(year, month, day);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay());
+}
+
+function shiftDate(n) {
+    const d = new Date(calYear, calMonth, calDay + n);
+    calYear = d.getFullYear(); calMonth = d.getMonth(); calDay = d.getDate();
+}
+
+function calHeaderLabel() {
+    if (calView === 'month') {
+        return new Date(calYear, calMonth, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    }
+    if (calView === 'week') {
+        const ws = weekStart(calYear, calMonth, calDay);
+        const we = new Date(ws.getFullYear(), ws.getMonth(), ws.getDate() + 6);
+        if (ws.getMonth() === we.getMonth()) {
+            return `${ws.toLocaleString('en-US', { month: 'short' })} ${ws.getDate()}–${we.getDate()}, ${we.getFullYear()}`;
+        }
+        return `${ws.toLocaleString('en-US', { month: 'short', day: 'numeric' })} – ${we.toLocaleString('en-US', { month: 'short', day: 'numeric' })}, ${we.getFullYear()}`;
+    }
+    return new Date(calYear, calMonth, calDay).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function updateCalViewButtons() {
+    ['Day', 'Week', 'Month'].forEach((v) => {
+        const btn = $('calView' + v);
+        if (btn) btn.classList.toggle('active', calView === v.toLowerCase());
+    });
+}
+
+function renderCalendar() {
+    updateCalViewButtons();
+    $('calMonth').textContent = calHeaderLabel();
+    if (calView === 'week') { renderWeekView(); return; }
+    if (calView === 'day') { renderDayView(); return; }
+    renderMonthView();
+}
+
+function renderMonthView() {
+    const grid = $('calGrid');
+    grid.className = 'cal-grid';
     const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     let html = dows.map((d) => `<div class="cal-dow">${d}</div>`).join('');
-
     const first = new Date(calYear, calMonth, 1);
     const start = new Date(calYear, calMonth, 1 - first.getDay());
-    const todayStr = `${new Date().getFullYear()}-${pad(new Date().getMonth() + 1)}-${pad(new Date().getDate())}`;
+    const todayStr = dsStr(new Date());
     const interviews = getInterviews();
-
     for (let i = 0; i < 42; i++) {
         const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
-        const ds = `${cur.getFullYear()}-${pad(cur.getMonth() + 1)}-${pad(cur.getDate())}`;
+        const ds = dsStr(cur);
         const other = cur.getMonth() !== calMonth ? ' other' : '';
         const today = ds === todayStr ? ' today' : '';
         const dayEvents = interviews.filter((iv) => iv.date === ds).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
@@ -358,9 +400,78 @@ function renderCalendar() {
         html += `<div class="cal-cell${other}${today}" data-date="${ds}"><div class="daynum">${cur.getDate()}</div>${evHtml}</div>`;
     }
     grid.innerHTML = html;
-
     grid.querySelectorAll('.cal-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
     grid.querySelectorAll('.cal-cell').forEach((el) => { el.onclick = () => openScheduleForm(null, el.dataset.date); });
+    renderUpcoming();
+}
+
+function renderWeekView() {
+    const ws = weekStart(calYear, calMonth, calDay);
+    const days = Array.from({ length: 7 }, (_, i) => new Date(ws.getFullYear(), ws.getMonth(), ws.getDate() + i));
+    const todayStr = dsStr(new Date());
+    const interviews = getInterviews();
+    const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    let html = `<div class="wg-inner week"><div class="wg-corner"></div>`;
+    days.forEach((d, i) => {
+        const isToday = dsStr(d) === todayStr ? ' today' : '';
+        html += `<div class="wg-col-head${isToday}">${dows[i]}<span class="wg-daynum">${d.getDate()}</span></div>`;
+    });
+    CAL_HOURS.forEach((h) => {
+        const hLabel = h === 12 ? '12 PM' : h < 12 ? `${h} AM` : `${h - 12} PM`;
+        html += `<div class="wg-time">${hLabel}</div>`;
+        days.forEach((d) => {
+            const ds = dsStr(d);
+            const isToday = ds === todayStr ? ' today-col' : '';
+            const timeStr = `${pad(h)}:00`;
+            const evs = interviews.filter((iv) => iv.date === ds && iv.time && parseInt(iv.time) === h);
+            const evHtml = evs.map((iv) => {
+                const past = interviewEpoch(iv) < Date.now() ? ' past' : '';
+                return `<div class="wg-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}">${iv.time} ${escapeHtml(iv.title)}</div>`;
+            }).join('');
+            html += `<div class="wg-cell${isToday}" data-date="${ds}" data-time="${timeStr}">${evHtml}</div>`;
+        });
+    });
+    html += `</div>`;
+
+    const grid = $('calGrid');
+    grid.className = 'cal-week-day-grid';
+    grid.innerHTML = html;
+    grid.querySelectorAll('.wg-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
+    grid.querySelectorAll('.wg-cell').forEach((el) => {
+        el.onclick = () => openScheduleForm(null, el.dataset.date, el.dataset.time);
+    });
+    renderUpcoming();
+}
+
+function renderDayView() {
+    const d = new Date(calYear, calMonth, calDay);
+    const ds = dsStr(d);
+    const todayStr = dsStr(new Date());
+    const interviews = getInterviews();
+    const isToday = ds === todayStr;
+
+    let html = `<div class="wg-inner day"><div class="wg-corner"></div>`;
+    html += `<div class="wg-col-head${isToday ? ' today' : ''}">${d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>`;
+    CAL_HOURS.forEach((h) => {
+        const hLabel = h === 12 ? '12 PM' : h < 12 ? `${h} AM` : `${h - 12} PM`;
+        const timeStr = `${pad(h)}:00`;
+        const evs = interviews.filter((iv) => iv.date === ds && iv.time && parseInt(iv.time) === h);
+        const evHtml = evs.map((iv) => {
+            const past = interviewEpoch(iv) < Date.now() ? ' past' : '';
+            return `<div class="wg-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}">${iv.time} ${escapeHtml(iv.title)}</div>`;
+        }).join('');
+        html += `<div class="wg-time">${hLabel}</div><div class="wg-cell${isToday ? ' today-col' : ''}" data-date="${ds}" data-time="${timeStr}">${evHtml}</div>`;
+    });
+    html += `</div>`;
+
+    const grid = $('calGrid');
+    grid.className = 'cal-week-day-grid';
+    grid.innerHTML = html;
+    grid.querySelectorAll('.wg-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
+    grid.querySelectorAll('.wg-cell').forEach((el) => {
+        el.onclick = () => openScheduleForm(null, el.dataset.date, el.dataset.time);
+    });
     renderUpcoming();
 }
 
@@ -400,24 +511,59 @@ function addInterviewerRow(data = {}) {
     $('interviewerList').appendChild(row);
 }
 
-function openScheduleForm(id, presetDate) {
+function addAvailSlotRow(data = {}) {
+    const row = document.createElement('div');
+    row.className = 'avail-row';
+    row.innerHTML = `
+        <input type="date" data-av="date" />
+        <input type="time" data-av="startTime" />
+        <span class="avail-sep">–</span>
+        <input type="time" data-av="endTime" placeholder="end (opt.)" />
+        <button class="ghost small avail-pick" title="Use this slot for the interview date &amp; time">Use</button>
+        <button class="avail-remove" title="Remove">×</button>`;
+    row.querySelector('[data-av="date"]').value = data.date || '';
+    row.querySelector('[data-av="startTime"]').value = data.startTime || '';
+    row.querySelector('[data-av="endTime"]').value = data.endTime || '';
+    row.querySelector('.avail-pick').onclick = () => {
+        const d = row.querySelector('[data-av="date"]').value;
+        const t = row.querySelector('[data-av="startTime"]').value;
+        if (d) $('f_date').value = d;
+        if (t) $('f_time').value = t;
+    };
+    row.querySelector('.avail-remove').onclick = () => row.remove();
+    $('availSlotList').appendChild(row);
+}
+
+function collectAvailability() {
+    return Array.from($('availSlotList').querySelectorAll('.avail-row')).map((row) => ({
+        date: row.querySelector('[data-av="date"]').value,
+        startTime: row.querySelector('[data-av="startTime"]').value,
+        endTime: row.querySelector('[data-av="endTime"]').value,
+    })).filter((s) => s.date || s.startTime);
+}
+
+function openScheduleForm(id, presetDate, presetTime) {
     editingInterviewId = id;
     const iv = id ? getInterviews().find((x) => x.id === id) : null;
     $('scheduleFormTitle').textContent = iv ? 'Edit interview' : 'New interview';
     $('f_title').value = iv?.title || '';
     $('f_company').value = iv?.company || '';
+    $('f_meetingUrl').value = iv?.meetingUrl || '';
     $('f_meetingType').value = iv?.meetingType || 'interview';
     $('f_date').value = iv?.date || presetDate || '';
-    $('f_time').value = iv?.time || '';
+    $('f_time').value = iv?.time || presetTime || '';
     $('f_tz').value = iv?.tz || LOCAL_TZ;
     $('f_round').value = iv?.round || '';
     $('f_jobTitle').value = iv?.jobTitle || '';
+    $('f_introduction').value = iv?.introduction || '';
     $('f_jobDescription').value = iv?.jobDescription || '';
     $('f_whyThisCompany').value = iv?.whyThisCompany || '';
     $('f_departureReasons').value = iv?.departureReasons || '';
     $('f_notes').value = iv?.notes || '';
     $('interviewerList').innerHTML = '';
     (iv?.interviewers && iv.interviewers.length ? iv.interviewers : [{}]).forEach(addInterviewerRow);
+    $('availSlotList').innerHTML = '';
+    (iv?.availabilitySlots || []).forEach(addAvailSlotRow);
     $('deleteInterview').classList.toggle('hidden', !iv);
     $('calendar').classList.add('hidden');
     $('interviewDetail').classList.add('hidden');
@@ -443,13 +589,16 @@ function saveInterview() {
     const iv = existing || { id: uid() };
     Object.assign(iv, {
         title, company: $('f_company').value.trim(),
+        meetingUrl: $('f_meetingUrl').value.trim(),
         meetingType: $('f_meetingType').value || 'interview',
         date, time, tz: $('f_tz').value,
         round: $('f_round').value.trim(),
         jobTitle: $('f_jobTitle').value.trim(),
+        introduction: $('f_introduction').value.trim(),
         jobDescription: $('f_jobDescription').value.trim(),
         whyThisCompany: $('f_whyThisCompany').value.trim(),
         departureReasons: $('f_departureReasons').value.trim(),
+        availabilitySlots: collectAvailability(),
         interviewers: collectInterviewers(),
         notes: $('f_notes').value.trim(),
     });
@@ -491,15 +640,24 @@ function openDetail(id) {
     $('detailTitle').textContent = iv.title;
     $('detailCountdown').textContent = isNaN(ep) ? '' : relTime(ep);
     const ivText = (iv.interviewers || []).map((i) => [i.name, i.role, i.company ? 'at ' + i.company : ''].filter(Boolean).join(', ')).join('\n');
+    const meetingUrlHtml = iv.meetingUrl
+        ? `<div class="detail-row"><span class="k">Meeting URL</span><span class="v"><a href="${escapeHtml(iv.meetingUrl)}" target="_blank" rel="noopener">${escapeHtml(iv.meetingUrl)}</a></span></div>`
+        : '';
+    const availHtml = (iv.availabilitySlots || []).length
+        ? `<div class="detail-row"><span class="k">Availability</span><span class="v">${iv.availabilitySlots.map((s) => `${s.date || ''}${s.startTime ? ' ' + s.startTime : ''}${s.endTime ? ' – ' + s.endTime : ''}`).join('\n')}</span></div>`
+        : '';
     $('detailBody').innerHTML =
         detailRow('When', `${fmtInTz(ep, iv.tz || LOCAL_TZ)}  (${iv.tz || LOCAL_TZ})`) +
+        meetingUrlHtml +
         detailRow('Meeting type', mt ? `${mt.icon} ${mt.label}` : (iv.meetingType || '')) +
         detailRow('Company', iv.company) +
         detailRow('Round / stage', iv.round) +
         detailRow('Target job title', iv.jobTitle) +
+        detailRow('Introduction', iv.introduction) +
         detailRow('Job description', iv.jobDescription) +
         detailRow('Why this company', iv.whyThisCompany) +
         detailRow('Reasons for leaving', iv.departureReasons) +
+        availHtml +
         detailRow('Interviewer(s)', ivText) +
         detailRow('Notes', iv.notes);
     $('calendar').classList.add('hidden');
@@ -771,12 +929,26 @@ $('saveSettings').onclick = saveSettings;
 
 $('scheduleBtn').onclick = () => { $('calendar').classList.remove('hidden'); renderCalendar(); };
 $('closeCalendar').onclick = () => { $('calendar').classList.add('hidden'); };
-$('calPrev').onclick = () => { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendar(); };
-$('calNext').onclick = () => { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderCalendar(); };
-$('calToday').onclick = () => { const n = new Date(); calYear = n.getFullYear(); calMonth = n.getMonth(); renderCalendar(); };
+$('calPrev').onclick = () => {
+    if (calView === 'day') { shiftDate(-1); }
+    else if (calView === 'week') { shiftDate(-7); }
+    else { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } }
+    renderCalendar();
+};
+$('calNext').onclick = () => {
+    if (calView === 'day') { shiftDate(1); }
+    else if (calView === 'week') { shiftDate(7); }
+    else { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } }
+    renderCalendar();
+};
+$('calToday').onclick = () => { const n = new Date(); calYear = n.getFullYear(); calMonth = n.getMonth(); calDay = n.getDate(); renderCalendar(); };
+$('calViewDay').onclick   = () => { calView = 'day';   localStorage.setItem('ia_calView', calView); renderCalendar(); };
+$('calViewWeek').onclick  = () => { calView = 'week';  localStorage.setItem('ia_calView', calView); renderCalendar(); };
+$('calViewMonth').onclick = () => { calView = 'month'; localStorage.setItem('ia_calView', calView); renderCalendar(); };
 $('addInterviewBtn').onclick = () => openScheduleForm(null, null);
 
 $('addInterviewerBtn').onclick = () => addInterviewerRow();
+$('addAvailSlotBtn').onclick = () => addAvailSlotRow();
 $('saveInterview').onclick = saveInterview;
 $('deleteInterview').onclick = deleteInterview;
 $('closeScheduleForm').onclick = () => { $('scheduleForm').classList.add('hidden'); $('calendar').classList.remove('hidden'); };
@@ -803,5 +975,6 @@ $('questionInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' &&
 document.querySelectorAll('.modal-close').forEach((btn) => {
     btn.onclick = () => { const ov = btn.closest('.overlay'); if (ov) ov.classList.add('hidden'); };
 });
+$('closeCalendar').onclick = () => $('calendar').classList.add('hidden');
 
 init();

@@ -90,7 +90,6 @@
     <!-- Calendar modal -->
     <div id="calendar" class="overlay hidden">
         <div class="calendar-card">
-            <button id="closeCalendar" class="modal-close" title="Close">✕</button>
             <div class="cal-head">
                 <h2>📅 Interview schedule</h2>
                 <div class="cal-nav">
@@ -99,8 +98,14 @@
                     <button id="calNext" class="ghost small">›</button>
                     <button id="calToday" class="ghost small">Today</button>
                 </div>
+                <div class="cal-view-toggle">
+                    <button id="calViewDay" class="cal-view-btn">Day</button>
+                    <button id="calViewWeek" class="cal-view-btn">Week</button>
+                    <button id="calViewMonth" class="cal-view-btn">Month</button>
+                </div>
                 <div class="cal-head-actions">
-                    <button id="addInterviewBtn" class="primary" style="margin-right:8px">＋ New interview</button>
+                    <button id="addInterviewBtn" class="primary">＋ New interview</button>
+                    <button id="closeCalendar" class="modal-close-inline" title="Close">✕</button>
                 </div>
             </div>
             <div id="calGrid" class="cal-grid"></div>
@@ -116,6 +121,7 @@
             <div class="field-grid">
                 <div class="field"><label>Title *</label><input id="f_title" placeholder="e.g. Frontend round 1" /></div>
                 <div class="field"><label>Company</label><input id="f_company" /></div>
+                <div class="field field-wide"><label>Meeting URL</label><input id="f_meetingUrl" type="url" placeholder="https://meet.google.com/..." /></div>
                 <div class="field field-wide"><label>Meeting type</label><select id="f_meetingType"></select></div>
                 <div class="field"><label>Date *</label><input id="f_date" type="date" /></div>
                 <div class="field"><label>Time *</label><input id="f_time" type="time" /></div>
@@ -123,9 +129,19 @@
                 <div class="field"><label>Round / stage</label><input id="f_round" placeholder="e.g. Technical, HR, Final" /></div>
                 <div class="field"><label>Target job title</label><input id="f_jobTitle" /></div>
             </div>
+            <div class="field"><label>Introduction</label><textarea id="f_introduction" placeholder="Brief self-introduction to use at the start of the interview…"></textarea></div>
             <div class="field"><label>Job description</label><textarea id="f_jobDescription"></textarea></div>
             <div class="field"><label>Why this company</label><textarea id="f_whyThisCompany"></textarea></div>
             <div class="field"><label>Reasons for leaving (per company)</label><textarea id="f_departureReasons"></textarea></div>
+
+            <div class="iv-section">
+                <div class="iv-section-head">
+                    <label>Candidate Availability</label>
+                    <button id="addAvailSlotBtn" class="ghost small">＋ Add slot</button>
+                </div>
+                <p class="iv-hint">Add the candidate's proposed time slots, then click <strong>Use</strong> to auto-fill the scheduled date &amp; time above.</p>
+                <div id="availSlotList"></div>
+            </div>
 
             <div class="iv-section">
                 <div class="iv-section-head">
