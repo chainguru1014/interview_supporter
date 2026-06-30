@@ -561,12 +561,14 @@ function updateCalViewButtons() {
 
 function openTimeSlotFormWithDate(date, defaultTz) {
     $('tsSlotList').innerHTML = '';
+    getTimeSlots().forEach((s) => addTsRow(s));
     addTsRow({ date, startTime: '09:00', endTime: '17:00', tz: defaultTz || LOCAL_TZ });
     $('timeSlotForm').classList.remove('hidden');
 }
 
 function openTimeSlotFormWithDateTime(date, startTime, endTime, defaultTz) {
     $('tsSlotList').innerHTML = '';
+    getTimeSlots().forEach((s) => addTsRow(s));
     addTsRow({ date, startTime, endTime, tz: defaultTz || LOCAL_TZ });
     $('timeSlotForm').classList.remove('hidden');
 }
@@ -767,11 +769,13 @@ function renderWeekView(tz, gridEl) {
                 const endEp = tsEndEpoch(s);
                 const endLabel = !isNaN(endEp) ? epochToTzTime(endEp, tz) : '';
                 const label = endLabel ? `${epochToTzTime(ep, tz)}–${endLabel}` : epochToTzTime(ep, tz);
-                return `<div class="wg-ts" data-tsid="${escapeHtml(s.id)}" data-date="${ds}" data-time="${epochToTzTime(ep, tz)}">${label}</div>`;
+                const hasContinuation = slotSpansCell(s, ds, h + 1, tz);
+                return `<div class="wg-ts${hasContinuation ? ' wg-ts-cont-start' : ''}" data-tsid="${escapeHtml(s.id)}" data-date="${ds}" data-time="${epochToTzTime(ep, tz)}">${label}</div>`;
             }).join('');
-            const tsContHtml = slotsCont.map(({ s }) =>
-                `<div class="wg-ts-cont" data-tsid="${escapeHtml(s.id)}" data-date="${ds}" data-time="${timeStr}"></div>`
-            ).join('');
+            const tsContHtml = slotsCont.map(({ s }) => {
+                const isLast = !slotSpansCell(s, ds, h + 1, tz);
+                return `<div class="wg-ts-cont${isLast ? ' wg-ts-cont-last' : ''}" data-tsid="${escapeHtml(s.id)}" data-date="${ds}" data-time="${timeStr}"></div>`;
+            }).join('');
             html += `<div class="wg-cell${isToday}${hasCont ? ' ts-cont-cell' : ''}" data-date="${ds}" data-time="${timeStr}">${evHtml}${tsStartHtml}${tsContHtml}</div>`;
         });
     });
@@ -811,11 +815,13 @@ function renderDayView(tz, gridEl) {
             const endEp = tsEndEpoch(s);
             const endLabel = !isNaN(endEp) ? epochToTzTime(endEp, tz) : '';
             const label = endLabel ? `${epochToTzTime(ep, tz)}–${endLabel}` : epochToTzTime(ep, tz);
-            return `<div class="wg-ts" data-tsid="${escapeHtml(s.id)}" data-date="${ds}" data-time="${epochToTzTime(ep, tz)}">${label}</div>`;
+            const hasContinuation = slotSpansCell(s, ds, h + 1, tz);
+            return `<div class="wg-ts${hasContinuation ? ' wg-ts-cont-start' : ''}" data-tsid="${escapeHtml(s.id)}" data-date="${ds}" data-time="${epochToTzTime(ep, tz)}">${label}</div>`;
         }).join('');
-        const tsContHtml = slotsCont.map(({ s }) =>
-            `<div class="wg-ts-cont" data-tsid="${escapeHtml(s.id)}" data-date="${ds}" data-time="${timeStr}"></div>`
-        ).join('');
+        const tsContHtml = slotsCont.map(({ s }) => {
+            const isLast = !slotSpansCell(s, ds, h + 1, tz);
+            return `<div class="wg-ts-cont${isLast ? ' wg-ts-cont-last' : ''}" data-tsid="${escapeHtml(s.id)}" data-date="${ds}" data-time="${timeStr}"></div>`;
+        }).join('');
         html += `<div class="wg-time">${hLabel}</div><div class="wg-cell${isToday ? ' today-col' : ''}${hasCont ? ' ts-cont-cell' : ''}" data-date="${ds}" data-time="${timeStr}">${evHtml}${tsStartHtml}${tsContHtml}</div>`;
     });
     html += `</div>`;

@@ -179,6 +179,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .cal-ts:hover { background: rgba(46,204,113,0.32); }
 .wg-ts { font-size: 11px; background: rgba(46,204,113,0.18); color: var(--green); border: 1px solid rgba(46,204,113,0.35); border-radius: 4px; padding: 2px 6px; margin-bottom: 2px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wg-ts:hover { background: rgba(46,204,113,0.32); }
+.wg-ts.wg-ts-cont-start { position: absolute; top: 2px; left: 3px; right: 3px; bottom: -1px; border-radius: 4px 4px 0 0; border-bottom: none; margin-bottom: 0; z-index: 2; }
+.wg-ts.wg-ts-cont-start:hover { background: rgba(46,204,113,0.32); }
 
 /* ---- Time slot form rows ---- */
 .ts-row { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 10px; background: var(--panel-2); }
@@ -215,7 +217,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .wg-col-head.today { color: var(--accent); }
 .wg-daynum { font-size: 16px; display: block; }
 .wg-time { font-size: 11px; color: var(--muted); text-align: right; padding: 3px 6px 0 2px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); min-height: 52px; line-height: 1.3; }
-.wg-cell { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); min-height: 52px; padding: 2px 3px; cursor: pointer; }
+.wg-cell { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); min-height: 52px; padding: 2px 3px; cursor: pointer; position: relative; }
 .wg-cell:hover { background: var(--panel-2); }
 .wg-cell.today-col { background: rgba(99,102,241,0.05); }
 .wg-event { font-size: 11px; background: var(--accent-2); color: #fff; border-radius: 4px; padding: 2px 6px; margin-bottom: 2px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -283,8 +285,10 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .ts-ctx-menu button:hover { background: var(--border); }
 
 /* ---- Time slot continuation in week/day view ---- */
-.wg-cell.ts-cont-cell { background: rgba(46,204,113,0.07); border-left: 3px solid rgba(46,204,113,0.45) !important; }
-.wg-ts-cont { display: none; } /* hidden — parent cell coloring provides the visual */
+.wg-cell.ts-cont-cell { background: transparent; border-left: none !important; }
+.wg-ts-cont { display: block; position: absolute; top: -1px; left: 3px; right: 3px; bottom: 0; background: rgba(46,204,113,0.18); border-left: 3px solid rgba(46,204,113,0.45); z-index: 2; cursor: pointer; }
+.wg-ts-cont.wg-ts-cont-last { border-radius: 0 0 4px 4px; }
+.wg-ts-cont:hover { background: rgba(46,204,113,0.32); }
 
 /* ---- Week/day grid sizing for dual panes ---- */
 .cal-pane .cal-week-day-grid { max-height: 420px; }
