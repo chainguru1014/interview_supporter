@@ -28,10 +28,17 @@ let pushing = false;
 
 let calYear, calMonth, calDay;
 let calView = localStorage.getItem('ia_calView') || 'month';
-let calTz = localStorage.getItem('ia_calTz') || (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
+const CAL_TZ_LEFT_DEFAULT = 'Europe/Berlin';
+const CAL_TZ_RIGHT_DEFAULT = 'America/New_York';
+let calTzLeft  = localStorage.getItem('ia_calTzLeft')  || CAL_TZ_LEFT_DEFAULT;
+let calTzRight = localStorage.getItem('ia_calTzRight') || CAL_TZ_RIGHT_DEFAULT;
+let calTz = calTzLeft; // kept for any legacy helper calls
 let editingInterviewId = null;
-let detailInterviewId = null;
-let activeInterviewId = localStorage.getItem('ia_activeInterview') || null;
+let detailInterviewId  = null;
+let activeInterviewId  = localStorage.getItem('ia_activeInterview') || null;
+let ctxMenuSlotId    = null;
+let ctxMenuPresetDate = null;
+let ctxMenuPresetTime = null;
 
 const $ = (id) => document.getElementById(id);
 const pad = (n) => String(n).padStart(2, '0');
@@ -404,7 +411,8 @@ function populateTzSelect(el, selectedTz) {
 
 function populateTimezones() {
     populateTzSelect($('f_tz'), LOCAL_TZ);
-    if ($('calTz')) populateTzSelect($('calTz'), calTz);
+    if ($('calTzLeft'))  populateTzSelect($('calTzLeft'),  calTzLeft);
+    if ($('calTzRight')) populateTzSelect($('calTzRight'), calTzRight);
 }
 
 function tzOffsetMs(tz, date) {
@@ -440,21 +448,61 @@ function tsEpoch(slot) {
     return guess - off;
 }
 
-function epochToCalTzDate(epoch) {
-    return new Intl.DateTimeFormat('sv-SE', { timeZone: calTz, dateStyle: 'short' }).format(new Date(epoch));
+function tsEndEpoch(slot) {
+    if (!slot.date || !slot.endTime) return NaN;
+    const [y, mo, d] = slot.date.split('-').map(Number);
+    const [h, mi] = slot.endTime.split(':').map(Number);
+    const guess = Date.UTC(y, mo - 1, d, h, mi, 0);
+    const off = tzOffsetMs(slot.tz || LOCAL_TZ, new Date(guess));
+    return guess - off;
 }
 
-function epochToCalTzHour(epoch) {
-    const p = new Intl.DateTimeFormat('en-US', { timeZone: calTz, hour: 'numeric', hour12: false }).formatToParts(new Date(epoch));
+// Timezone-parameterized display helpers
+function epochToTzDate(epoch, tz) {
+    return new Intl.DateTimeFormat('sv-SE', { timeZone: tz, dateStyle: 'short' }).format(new Date(epoch));
+}
+function epochToTzHour(epoch, tz) {
+    const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).formatToParts(new Date(epoch));
     const h = parseInt(p.find((x) => x.type === 'hour')?.value || 0);
     return h === 24 ? 0 : h;
 }
-
-function epochToCalTzTime(epoch) {
-    const p = new Intl.DateTimeFormat('en-US', { timeZone: calTz, hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date(epoch));
+function epochToTzTime(epoch, tz) {
+    const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date(epoch));
     const hv = p.find((x) => x.type === 'hour')?.value || '00';
     const mv = p.find((x) => x.type === 'minute')?.value || '00';
     return `${parseInt(hv) === 24 ? '00' : hv}:${mv}`;
+}
+
+// Legacy aliases (used in renderUpcoming / reminders)
+function epochToCalTzDate(epoch) { return epochToTzDate(epoch, calTzLeft); }
+function epochToCalTzHour(epoch) { return epochToTzHour(epoch, calTzLeft); }
+function epochToCalTzTime(epoch) { return epochToTzTime(epoch, calTzLeft); }
+
+// Compute the UTC epoch range for a calendar cell [ds, h] in a given timezone
+function cellEpochRange(ds, h, tz) {
+    const [y, mo, d] = ds.split('-').map(Number);
+    const guess = Date.UTC(y, mo - 1, d, h, 0, 0);
+    const off = tzOffsetMs(tz, new Date(guess));
+    const start = guess - off;
+    return { start, end: start + 3600000 };
+}
+
+// Does a time slot START within the given cell (ds, h) in timezone tz?
+function slotStartsInCell(slot, ds, h, tz) {
+    const ep = tsEpoch(slot);
+    if (isNaN(ep)) return false;
+    const { start, end } = cellEpochRange(ds, h, tz);
+    return ep >= start && ep < end;
+}
+
+// Does a time slot CONTINUE (overlap but not start) through the cell (ds, h) in timezone tz?
+function slotSpansCell(slot, ds, h, tz) {
+    const ep = tsEpoch(slot);
+    if (isNaN(ep)) return false;
+    const endEp = tsEndEpoch(slot);
+    const effectiveEnd = !isNaN(endEp) ? endEp : ep + 3600000;
+    const { start } = cellEpochRange(ds, h, tz);
+    return ep < start && effectiveEnd > start;
 }
 
 function relTime(epoch) {
@@ -511,19 +559,19 @@ function updateCalViewButtons() {
     });
 }
 
-function openTimeSlotFormWithDate(date) {
+function openTimeSlotFormWithDate(date, defaultTz) {
     $('tsSlotList').innerHTML = '';
-    addTsRow({ date, startTime: '09:00', endTime: '17:00' });
+    addTsRow({ date, startTime: '09:00', endTime: '17:00', tz: defaultTz || LOCAL_TZ });
     $('timeSlotForm').classList.remove('hidden');
 }
 
-function openTimeSlotFormWithDateTime(date, startTime, endTime) {
+function openTimeSlotFormWithDateTime(date, startTime, endTime, defaultTz) {
     $('tsSlotList').innerHTML = '';
-    addTsRow({ date, startTime, endTime });
+    addTsRow({ date, startTime, endTime, tz: defaultTz || LOCAL_TZ });
     $('timeSlotForm').classList.remove('hidden');
 }
 
-function setupCalDrag(grid, view) {
+function setupCalDrag(grid, view, tz) {
     let dragStart = null;
     let dragEnd = null;
     let isDragging = false;
@@ -558,7 +606,8 @@ function setupCalDrag(grid, view) {
         const cell = getCell(e);
         if (!cell || e.button !== 0) return;
         if (e.target.classList.contains('cal-event') || e.target.classList.contains('wg-event') ||
-            e.target.classList.contains('cal-ts') || e.target.classList.contains('wg-ts')) return;
+            e.target.classList.contains('cal-ts') || e.target.classList.contains('wg-ts') ||
+            e.target.classList.contains('wg-ts-cont')) return;
         dragStart = cell;
         dragEnd = cell;
         isDragging = false;
@@ -586,26 +635,43 @@ function setupCalDrag(grid, view) {
         isDragging = false;
 
         if (!wasDrag) {
-            if (view === 'month') openScheduleForm(null, start.dataset.date);
-            else openScheduleForm(null, start.dataset.date, start.dataset.time);
+            // Single click on an empty cell
+            if (view === 'month') {
+                // If day has time slots, open schedule form; else open slot form
+                const date = start.dataset.date;
+                const dayHasSlot = getTimeSlots().some((s) => {
+                    const ep = tsEpoch(s);
+                    return !isNaN(ep) && epochToTzDate(ep, tz) === date;
+                });
+                if (dayHasSlot) openScheduleForm(null, date);
+                else openTimeSlotFormWithDate(date, tz);
+            } else {
+                openScheduleForm(null, start.dataset.date, start.dataset.time);
+            }
             return;
         }
 
         if (view === 'month') {
             const [lo] = [start.dataset.date, end.dataset.date].sort();
-            openTimeSlotFormWithDate(lo);
+            openTimeSlotFormWithDate(lo, tz);
         } else {
             const date = start.dataset.date;
             const [lo, hi] = [start.dataset.time, end.dataset.time].sort();
             const endH = Math.min(parseInt(hi.split(':')[0]) + 1, 23);
             const endTime = `${pad(endH)}:00`;
+            const loH = parseInt(lo.split(':')[0]);
+            const hiH = parseInt(hi.split(':')[0]);
             const hasTs = getTimeSlots().some((s) => {
                 const ep = tsEpoch(s);
+                const endEp = tsEndEpoch(s);
                 if (isNaN(ep)) return false;
-                return epochToCalTzDate(ep) === date && epochToCalTzHour(ep) >= parseInt(lo) && epochToCalTzHour(ep) <= parseInt(hi);
+                if (epochToTzDate(ep, tz) !== date) return false;
+                const slotStartH = epochToTzHour(ep, tz);
+                const slotEndH = !isNaN(endEp) ? epochToTzHour(endEp, tz) : slotStartH + 1;
+                return slotStartH <= hiH && slotEndH > loH;
             });
             if (hasTs) openScheduleForm(null, date, lo);
-            else openTimeSlotFormWithDateTime(date, lo, endTime);
+            else openTimeSlotFormWithDateTime(date, lo, endTime, tz);
         }
     });
 
@@ -619,19 +685,27 @@ function setupCalDrag(grid, view) {
 function renderCalendar() {
     updateCalViewButtons();
     $('calMonth').textContent = calHeaderLabel();
-    if (calView === 'week') { renderWeekView(); return; }
-    if (calView === 'day') { renderDayView(); return; }
-    renderMonthView();
+    calTz = calTzLeft; // keep legacy alias in sync
+    if (calView === 'week') {
+        renderWeekView(calTzLeft,  $('calGridLeft'));
+        renderWeekView(calTzRight, $('calGridRight'));
+    } else if (calView === 'day') {
+        renderDayView(calTzLeft,  $('calGridLeft'));
+        renderDayView(calTzRight, $('calGridRight'));
+    } else {
+        renderMonthView(calTzLeft,  $('calGridLeft'));
+        renderMonthView(calTzRight, $('calGridRight'));
+    }
+    renderUpcoming();
 }
 
-function renderMonthView() {
-    const grid = $('calGrid');
-    grid.className = 'cal-grid';
+function renderMonthView(tz, gridEl) {
+    gridEl.className = 'cal-grid';
     const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     let html = dows.map((d) => `<div class="cal-dow">${d}</div>`).join('');
     const first = new Date(calYear, calMonth, 1);
     const start = new Date(calYear, calMonth, 1 - first.getDay());
-    const todayStr = epochToCalTzDate(Date.now());
+    const todayStr = epochToTzDate(Date.now(), tz);
     const ivEps = getInterviews().map((iv) => ({ iv, ep: interviewEpoch(iv) })).filter((x) => !isNaN(x.ep));
     const tsEps = getTimeSlots().map((s) => ({ s, ep: tsEpoch(s) })).filter((x) => !isNaN(x.ep));
     for (let i = 0; i < 42; i++) {
@@ -639,28 +713,32 @@ function renderMonthView() {
         const ds = dsStr(cur);
         const other = cur.getMonth() !== calMonth ? ' other' : '';
         const today = ds === todayStr ? ' today' : '';
-        const dayEps = ivEps.filter(({ ep }) => epochToCalTzDate(ep) === ds).sort((a, b) => a.ep - b.ep);
+        const dayEps = ivEps.filter(({ ep }) => epochToTzDate(ep, tz) === ds).sort((a, b) => a.ep - b.ep);
         const evHtml = dayEps.map(({ iv, ep }) => {
             const past = ep < Date.now() ? ' past' : '';
-            return `<div class="cal-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}">${epochToCalTzTime(ep)} ${escapeHtml(iv.title)}</div>`;
+            return `<div class="cal-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}">${epochToTzTime(ep, tz)} ${escapeHtml(iv.title)}</div>`;
         }).join('');
-        const tsDayEps = tsEps.filter(({ ep }) => epochToCalTzDate(ep) === ds);
-        const tsHtml = tsDayEps.map(({ s, ep }) =>
-            `<div class="cal-ts" data-tsid="${escapeHtml(s.id)}" title="${epochToCalTzTime(ep)}">${epochToCalTzTime(ep)}</div>`
-        ).join('');
+        const tsDayEps = tsEps.filter(({ ep }) => epochToTzDate(ep, tz) === ds);
+        const tsHtml = tsDayEps.map(({ s, ep }) => {
+            const endEp = tsEndEpoch(s);
+            const endLabel = !isNaN(endEp) ? epochToTzTime(endEp, tz) : '';
+            const label = endLabel ? `${epochToTzTime(ep, tz)}–${endLabel}` : epochToTzTime(ep, tz);
+            return `<div class="cal-ts" data-tsid="${escapeHtml(s.id)}" data-date="${ds}" data-time="${epochToTzTime(ep, tz)}" title="${label}">${label}</div>`;
+        }).join('');
         html += `<div class="cal-cell${other}${today}" data-date="${ds}"><div class="daynum">${cur.getDate()}</div>${evHtml}${tsHtml}</div>`;
     }
-    grid.innerHTML = html;
-    grid.querySelectorAll('.cal-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
-    grid.querySelectorAll('.cal-ts').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openTimeSlotForm(); }; });
-    setupCalDrag(grid, 'month');
-    renderUpcoming();
+    gridEl.innerHTML = html;
+    gridEl.querySelectorAll('.cal-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
+    gridEl.querySelectorAll('.cal-ts').forEach((el) => {
+        el.onclick = (e) => { e.stopPropagation(); showTsContextMenu(e, el.dataset.tsid, el.dataset.date, el.dataset.time); };
+    });
+    setupCalDrag(gridEl, 'month', tz);
 }
 
-function renderWeekView() {
+function renderWeekView(tz, gridEl) {
     const ws = weekStart(calYear, calMonth, calDay);
     const days = Array.from({ length: 7 }, (_, i) => new Date(ws.getFullYear(), ws.getMonth(), ws.getDate() + i));
-    const todayStr = epochToCalTzDate(Date.now());
+    const todayStr = epochToTzDate(Date.now(), tz);
     const ivEps = getInterviews().map((iv) => ({ iv, ep: interviewEpoch(iv) })).filter((x) => !isNaN(x.ep));
     const tsEps = getTimeSlots().map((s) => ({ s, ep: tsEpoch(s) })).filter((x) => !isNaN(x.ep));
     const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -677,32 +755,41 @@ function renderWeekView() {
             const ds = dsStr(d);
             const isToday = ds === todayStr ? ' today-col' : '';
             const timeStr = `${pad(h)}:00`;
-            const evs = ivEps.filter(({ ep }) => epochToCalTzDate(ep) === ds && epochToCalTzHour(ep) === h);
+            const evs = ivEps.filter(({ ep }) => epochToTzDate(ep, tz) === ds && epochToTzHour(ep, tz) === h);
             const evHtml = evs.map(({ iv, ep }) => {
                 const past = ep < Date.now() ? ' past' : '';
-                return `<div class="wg-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}">${epochToCalTzTime(ep)} ${escapeHtml(iv.title)}</div>`;
+                return `<div class="wg-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}">${epochToTzTime(ep, tz)} ${escapeHtml(iv.title)}</div>`;
             }).join('');
-            const tsHtml = tsEps.filter(({ ep }) => epochToCalTzDate(ep) === ds && epochToCalTzHour(ep) === h).map(({ s, ep }) =>
-                `<div class="wg-ts" data-tsid="${escapeHtml(s.id)}">${epochToCalTzTime(ep)}</div>`
+            const slotsStart = tsEps.filter(({ s }) => slotStartsInCell(s, ds, h, tz));
+            const slotsCont  = tsEps.filter(({ s }) => slotSpansCell(s, ds, h, tz));
+            const hasCont = slotsCont.length > 0;
+            const tsStartHtml = slotsStart.map(({ s, ep }) => {
+                const endEp = tsEndEpoch(s);
+                const endLabel = !isNaN(endEp) ? epochToTzTime(endEp, tz) : '';
+                const label = endLabel ? `${epochToTzTime(ep, tz)}–${endLabel}` : epochToTzTime(ep, tz);
+                return `<div class="wg-ts" data-tsid="${escapeHtml(s.id)}" data-date="${ds}" data-time="${epochToTzTime(ep, tz)}">${label}</div>`;
+            }).join('');
+            const tsContHtml = slotsCont.map(({ s }) =>
+                `<div class="wg-ts-cont" data-tsid="${escapeHtml(s.id)}" data-date="${ds}" data-time="${timeStr}"></div>`
             ).join('');
-            html += `<div class="wg-cell${isToday}" data-date="${ds}" data-time="${timeStr}">${evHtml}${tsHtml}</div>`;
+            html += `<div class="wg-cell${isToday}${hasCont ? ' ts-cont-cell' : ''}" data-date="${ds}" data-time="${timeStr}">${evHtml}${tsStartHtml}${tsContHtml}</div>`;
         });
     });
     html += `</div>`;
 
-    const grid = $('calGrid');
-    grid.className = 'cal-week-day-grid';
-    grid.innerHTML = html;
-    grid.querySelectorAll('.wg-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
-    grid.querySelectorAll('.wg-ts').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openTimeSlotForm(); }; });
-    setupCalDrag(grid, 'week');
-    renderUpcoming();
+    gridEl.className = 'cal-week-day-grid';
+    gridEl.innerHTML = html;
+    gridEl.querySelectorAll('.wg-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
+    gridEl.querySelectorAll('.wg-ts, .wg-ts-cont').forEach((el) => {
+        el.onclick = (e) => { e.stopPropagation(); showTsContextMenu(e, el.dataset.tsid, el.dataset.date, el.dataset.time); };
+    });
+    setupCalDrag(gridEl, 'week', tz);
 }
 
-function renderDayView() {
+function renderDayView(tz, gridEl) {
     const d = new Date(calYear, calMonth, calDay);
     const ds = dsStr(d);
-    const todayStr = epochToCalTzDate(Date.now());
+    const todayStr = epochToTzDate(Date.now(), tz);
     const ivEps = getInterviews().map((iv) => ({ iv, ep: interviewEpoch(iv) })).filter((x) => !isNaN(x.ep));
     const tsEps = getTimeSlots().map((s) => ({ s, ep: tsEpoch(s) })).filter((x) => !isNaN(x.ep));
     const isToday = ds === todayStr;
@@ -712,25 +799,34 @@ function renderDayView() {
     CAL_HOURS.forEach((h) => {
         const hLabel = h === 12 ? '12 PM' : h < 12 ? `${h} AM` : `${h - 12} PM`;
         const timeStr = `${pad(h)}:00`;
-        const evs = ivEps.filter(({ ep }) => epochToCalTzDate(ep) === ds && epochToCalTzHour(ep) === h);
+        const evs = ivEps.filter(({ ep }) => epochToTzDate(ep, tz) === ds && epochToTzHour(ep, tz) === h);
         const evHtml = evs.map(({ iv, ep }) => {
             const past = ep < Date.now() ? ' past' : '';
-            return `<div class="wg-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}">${epochToCalTzTime(ep)} ${escapeHtml(iv.title)}</div>`;
+            return `<div class="wg-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}">${epochToTzTime(ep, tz)} ${escapeHtml(iv.title)}</div>`;
         }).join('');
-        const tsHtml = tsEps.filter(({ ep }) => epochToCalTzDate(ep) === ds && epochToCalTzHour(ep) === h).map(({ s, ep }) =>
-            `<div class="wg-ts" data-tsid="${escapeHtml(s.id)}">${epochToCalTzTime(ep)}</div>`
+        const slotsStart = tsEps.filter(({ s }) => slotStartsInCell(s, ds, h, tz));
+        const slotsCont  = tsEps.filter(({ s }) => slotSpansCell(s, ds, h, tz));
+        const hasCont = slotsCont.length > 0;
+        const tsStartHtml = slotsStart.map(({ s, ep }) => {
+            const endEp = tsEndEpoch(s);
+            const endLabel = !isNaN(endEp) ? epochToTzTime(endEp, tz) : '';
+            const label = endLabel ? `${epochToTzTime(ep, tz)}–${endLabel}` : epochToTzTime(ep, tz);
+            return `<div class="wg-ts" data-tsid="${escapeHtml(s.id)}" data-date="${ds}" data-time="${epochToTzTime(ep, tz)}">${label}</div>`;
+        }).join('');
+        const tsContHtml = slotsCont.map(({ s }) =>
+            `<div class="wg-ts-cont" data-tsid="${escapeHtml(s.id)}" data-date="${ds}" data-time="${timeStr}"></div>`
         ).join('');
-        html += `<div class="wg-time">${hLabel}</div><div class="wg-cell${isToday ? ' today-col' : ''}" data-date="${ds}" data-time="${timeStr}">${evHtml}${tsHtml}</div>`;
+        html += `<div class="wg-time">${hLabel}</div><div class="wg-cell${isToday ? ' today-col' : ''}${hasCont ? ' ts-cont-cell' : ''}" data-date="${ds}" data-time="${timeStr}">${evHtml}${tsStartHtml}${tsContHtml}</div>`;
     });
     html += `</div>`;
 
-    const grid = $('calGrid');
-    grid.className = 'cal-week-day-grid';
-    grid.innerHTML = html;
-    grid.querySelectorAll('.wg-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
-    grid.querySelectorAll('.wg-ts').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openTimeSlotForm(); }; });
-    setupCalDrag(grid, 'day');
-    renderUpcoming();
+    gridEl.className = 'cal-week-day-grid';
+    gridEl.innerHTML = html;
+    gridEl.querySelectorAll('.wg-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
+    gridEl.querySelectorAll('.wg-ts, .wg-ts-cont').forEach((el) => {
+        el.onclick = (e) => { e.stopPropagation(); showTsContextMenu(e, el.dataset.tsid, el.dataset.date, el.dataset.time); };
+    });
+    setupCalDrag(gridEl, 'day', tz);
 }
 
 function renderUpcoming() {
@@ -1165,7 +1261,17 @@ $('calToday').onclick = () => { const n = new Date(); calYear = n.getFullYear();
 $('calViewDay').onclick   = () => { calView = 'day';   localStorage.setItem('ia_calView', calView); renderCalendar(); };
 $('calViewWeek').onclick  = () => { calView = 'week';  localStorage.setItem('ia_calView', calView); renderCalendar(); };
 $('calViewMonth').onclick = () => { calView = 'month'; localStorage.setItem('ia_calView', calView); renderCalendar(); };
-$('calTz').addEventListener('change', () => { calTz = $('calTz').value; localStorage.setItem('ia_calTz', calTz); renderCalendar(); });
+$('calTzLeft').addEventListener('change', () => {
+    calTzLeft = $('calTzLeft').value;
+    calTz = calTzLeft;
+    localStorage.setItem('ia_calTzLeft', calTzLeft);
+    renderCalendar();
+});
+$('calTzRight').addEventListener('change', () => {
+    calTzRight = $('calTzRight').value;
+    localStorage.setItem('ia_calTzRight', calTzRight);
+    renderCalendar();
+});
 $('addInterviewBtn').onclick = () => openScheduleForm(null, null);
 $('addTimeSlotBtn').onclick = openTimeSlotForm;
 
@@ -1199,6 +1305,41 @@ $('questionInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' &&
 // ✕ close buttons on any modal card
 document.querySelectorAll('.modal-close').forEach((btn) => {
     btn.onclick = () => { const ov = btn.closest('.overlay'); if (ov) ov.classList.add('hidden'); };
+});
+
+// ===========================================================================
+// Time slot context menu (click on a slot chip → edit or schedule interview)
+// ===========================================================================
+function showTsContextMenu(e, slotId, presetDate, presetTime) {
+    ctxMenuSlotId    = slotId;
+    ctxMenuPresetDate = presetDate || '';
+    ctxMenuPresetTime = presetTime || '';
+    const menu = $('tsContextMenu');
+    menu.classList.remove('hidden');
+    const x = Math.min(e.clientX + 4, window.innerWidth  - 185);
+    const y = Math.min(e.clientY + 4, window.innerHeight - 90);
+    menu.style.left = `${x}px`;
+    menu.style.top  = `${y}px`;
+}
+
+$('tsCtxEdit').onclick = () => {
+    $('tsContextMenu').classList.add('hidden');
+    openTimeSlotForm();
+};
+$('tsCtxNewIv').onclick = () => {
+    $('tsContextMenu').classList.add('hidden');
+    $('calendar').classList.add('hidden');
+    openScheduleForm(null, ctxMenuPresetDate || null, ctxMenuPresetTime || null);
+};
+document.addEventListener('click', (e) => {
+    const menu = $('tsContextMenu');
+    if (menu && !menu.classList.contains('hidden') &&
+        !e.target.closest('#tsContextMenu') &&
+        !e.target.classList.contains('cal-ts') &&
+        !e.target.classList.contains('wg-ts') &&
+        !e.target.classList.contains('wg-ts-cont')) {
+        menu.classList.add('hidden');
+    }
 });
 
 init();

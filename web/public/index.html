@@ -107,14 +107,35 @@
                         <button id="calViewWeek" class="cal-view-btn">Week</button>
                         <button id="calViewMonth" class="cal-view-btn">Month</button>
                     </div>
-                    <select id="calTz" class="cal-tz-sel" title="Calendar display timezone"></select>
                     <button id="addInterviewBtn" class="primary small">＋ New interview</button>
                     <button id="addTimeSlotBtn" class="ghost small ts-add-btn">＋ Time slot</button>
                 </div>
             </div>
-            <div id="calGrid" class="cal-grid"></div>
+            <div class="dual-cal-wrapper">
+                <div class="cal-pane">
+                    <div class="cal-pane-header">
+                        <span class="cal-pane-label">🇩🇪 Europe / Berlin</span>
+                        <select id="calTzLeft" class="cal-tz-sel" title="Left calendar timezone"></select>
+                    </div>
+                    <div id="calGridLeft"></div>
+                </div>
+                <div class="cal-pane-divider"></div>
+                <div class="cal-pane">
+                    <div class="cal-pane-header">
+                        <span class="cal-pane-label">🇺🇸 America / New York</span>
+                        <select id="calTzRight" class="cal-tz-sel" title="Right calendar timezone"></select>
+                    </div>
+                    <div id="calGridRight"></div>
+                </div>
+            </div>
             <div id="calUpcoming" class="cal-upcoming"></div>
         </div>
+    </div>
+
+    <!-- Time slot context menu popup -->
+    <div id="tsContextMenu" class="ts-ctx-menu hidden">
+        <button id="tsCtxEdit">✏ Edit slot</button>
+        <button id="tsCtxNewIv">＋ New interview</button>
     </div>
 
     <!-- Add / edit interview modal -->
