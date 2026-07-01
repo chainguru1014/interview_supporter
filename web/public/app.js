@@ -247,6 +247,25 @@ function getInterviews() { return DATA.interviews || []; }
 function getTimeSlots() { return DATA.timeSlots || []; }
 
 // ===========================================================================
+// Person colors
+// ===========================================================================
+const PERSON_COLORS = [
+    '#6366f1', // indigo
+    '#22c55e', // green
+    '#f59e0b', // amber
+    '#ef4444', // red
+    '#8b5cf6', // violet
+    '#ec4899', // pink
+    '#14b8a6', // teal
+    '#f97316', // orange
+];
+function getPersonColor(personId) {
+    if (!personId) return null;
+    const idx = getPersons().findIndex((p) => p.id === personId);
+    return idx >= 0 ? PERSON_COLORS[idx % PERSON_COLORS.length] : null;
+}
+
+// ===========================================================================
 // Time slot availability (independent of individual interviews)
 // ===========================================================================
 function getUsTzInfo(dateStr, timeStr, slotTz) {
@@ -811,7 +830,9 @@ function renderMonthView(tz, gridEl) {
         const dayEps = ivEps.filter(({ ep }) => epochToTzDate(ep, tz) === ds).sort((a, b) => a.ep - b.ep);
         const evHtml = dayEps.map(({ iv, ep }) => {
             const past = ep < Date.now() ? ' past' : '';
-            return `<div class="cal-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}">${epochToTzTime(ep, tz)} ${escapeHtml(iv.title)}</div>`;
+            const color = !past && iv.personId ? getPersonColor(iv.personId) : null;
+            const style = color ? ` style="background:${color}"` : '';
+            return `<div class="cal-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}"${style}>${epochToTzTime(ep, tz)} ${escapeHtml(iv.title)}</div>`;
         }).join('');
         const tsDayEps = tsEps.filter(({ ep }) => epochToTzDate(ep, tz) === ds);
         const tsHtml = tsDayEps.map(({ s, ep }) => {
@@ -853,7 +874,9 @@ function renderWeekView(tz, gridEl) {
             const evs = ivEps.filter(({ ep }) => epochToTzDate(ep, tz) === ds && epochToTzHour(ep, tz) === h);
             const evHtml = evs.map(({ iv, ep }) => {
                 const past = ep < Date.now() ? ' past' : '';
-                return `<div class="wg-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}">${epochToTzTime(ep, tz)} ${escapeHtml(iv.title)}</div>`;
+                const color = !past && iv.personId ? getPersonColor(iv.personId) : null;
+                const style = color ? ` style="background:${color}"` : '';
+                return `<div class="wg-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}"${style}>${epochToTzTime(ep, tz)} ${escapeHtml(iv.title)}</div>`;
             }).join('');
             const slotsStart = tsEps.filter(({ s }) => slotStartsInCell(s, ds, h, tz));
             const slotsCont  = tsEps.filter(({ s }) => slotSpansCell(s, ds, h, tz));
@@ -876,6 +899,7 @@ function renderWeekView(tz, gridEl) {
 
     gridEl.className = 'cal-week-day-grid';
     gridEl.innerHTML = html;
+    insertNowLine(gridEl, tz);
     gridEl.querySelectorAll('.wg-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
     gridEl.querySelectorAll('.wg-ts, .wg-ts-cont').forEach((el) => {
         el.onclick = (e) => { e.stopPropagation(); showTsContextMenu(e, el.dataset.tsid, el.dataset.date, el.dataset.time); };
@@ -899,7 +923,9 @@ function renderDayView(tz, gridEl) {
         const evs = ivEps.filter(({ ep }) => epochToTzDate(ep, tz) === ds && epochToTzHour(ep, tz) === h);
         const evHtml = evs.map(({ iv, ep }) => {
             const past = ep < Date.now() ? ' past' : '';
-            return `<div class="wg-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}">${epochToTzTime(ep, tz)} ${escapeHtml(iv.title)}</div>`;
+            const color = !past && iv.personId ? getPersonColor(iv.personId) : null;
+            const style = color ? ` style="background:${color}"` : '';
+            return `<div class="wg-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}"${style}>${epochToTzTime(ep, tz)} ${escapeHtml(iv.title)}</div>`;
         }).join('');
         const slotsStart = tsEps.filter(({ s }) => slotStartsInCell(s, ds, h, tz));
         const slotsCont  = tsEps.filter(({ s }) => slotSpansCell(s, ds, h, tz));
@@ -921,6 +947,7 @@ function renderDayView(tz, gridEl) {
 
     gridEl.className = 'cal-week-day-grid';
     gridEl.innerHTML = html;
+    insertNowLine(gridEl, tz);
     gridEl.querySelectorAll('.wg-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
     gridEl.querySelectorAll('.wg-ts, .wg-ts-cont').forEach((el) => {
         el.onclick = (e) => { e.stopPropagation(); showTsContextMenu(e, el.dataset.tsid, el.dataset.date, el.dataset.time); };
@@ -934,16 +961,43 @@ function renderUpcoming() {
     const up = getInterviews().map((iv) => ({ iv, ep: interviewEpoch(iv) }))
         .filter((x) => x.ep >= now).sort((a, b) => a.ep - b.ep).slice(0, 5);
     if (!up.length) { box.innerHTML = '<h3>Upcoming</h3><p class="muted">No upcoming interviews.</p>'; return; }
-    box.innerHTML = '<h3>Upcoming</h3>' + up.map(({ iv, ep }) => `
+    box.innerHTML = '<h3>Upcoming</h3>' + up.map(({ iv, ep }) => {
+        const color = iv.personId ? getPersonColor(iv.personId) : null;
+        const dot = color ? `<span class="upcoming-dot" style="background:${color}"></span>` : '';
+        return `
         <div class="upcoming-item" data-iv="${iv.id}">
-            <span><strong>${escapeHtml(iv.title)}</strong>${iv.company ? ' · ' + escapeHtml(iv.company) : ''}</span>
+            <span>${dot}<strong>${escapeHtml(iv.title)}</strong>${iv.company ? ' · ' + escapeHtml(iv.company) : ''}</span>
             <span class="upcoming-when">${fmtInTz(ep, iv.tz || LOCAL_TZ)} · ${relTime(ep)}</span>
-        </div>`).join('');
+        </div>`;
+    }).join('');
     box.querySelectorAll('.upcoming-item').forEach((el) => { el.onclick = () => openDetail(el.dataset.iv); });
 }
 
 function escapeHtml(s) {
     return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function getNowInTz(tz) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit',
+    }).formatToParts(new Date());
+    const h = parseInt(parts.find((p) => p.type === 'hour')?.value || '0');
+    const m = parseInt(parts.find((p) => p.type === 'minute')?.value || '0');
+    return { h: h === 24 ? 0 : h, m };
+}
+
+function insertNowLine(gridEl, tz) {
+    const todayDs = epochToTzDate(Date.now(), tz);
+    const { h, m } = getNowInTz(tz);
+    const cell = gridEl.querySelector(`.wg-cell[data-date="${todayDs}"][data-time="${pad(h)}:00"]`);
+    if (!cell) return;
+    const line = document.createElement('div');
+    line.className = 'now-line';
+    line.style.top = `${(m / 60) * 100}%`;
+    cell.appendChild(line);
+    // Scroll so the now-line is roughly centered in the visible area
+    const target = Math.max(0, cell.offsetTop - gridEl.clientHeight / 2 + 26);
+    gridEl.scrollTop = target;
 }
 
 // ===========================================================================
