@@ -294,7 +294,8 @@ function slotConflictsWithInterviews(dateStr, startTime, endTime, slotTz) {
     return getInterviews().filter((iv) => {
         const i0 = interviewEpoch(iv);
         if (isNaN(i0)) return false;
-        const i1 = i0 + 3600000;
+        const endEp = interviewEndEpoch(iv);
+        const i1 = !isNaN(endEp) ? endEp : i0 + 3600000;
         return s0 < i1 && s1 > i0;
     }).map((iv) => iv.title);
 }
@@ -617,6 +618,72 @@ function slotSpansCell(slot, ds, h, tz) {
     return ep < start && effectiveEnd > start;
 }
 
+// ===========================================================================
+// Interview duration helpers
+// ===========================================================================
+function interviewEndEpoch(iv) {
+    if (!iv.endTime || !iv.date) return NaN;
+    const [y, mo, d] = iv.date.split('-').map(Number);
+    const [h, mi] = iv.endTime.split(':').map(Number);
+    const guess = Date.UTC(y, mo - 1, d, h, mi, 0);
+    const off = tzOffsetMs(iv.tz || LOCAL_TZ, new Date(guess));
+    return guess - off;
+}
+
+function epochToTzMinute(epoch, tz) {
+    const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, minute: 'numeric' }).formatToParts(new Date(epoch));
+    return parseInt(p.find((x) => x.type === 'minute')?.value || 0);
+}
+
+// Does interview ep START in cell (ds, h)?
+function ivStartsInCell(ep, ds, h, tz) {
+    const { start, end } = cellEpochRange(ds, h, tz);
+    return ep >= start && ep < end;
+}
+
+// Does interview CONTINUE THROUGH cell (ds, h) — i.e. started earlier and runs past cell start?
+function ivSpansCell(ep, endEp, ds, h, tz) {
+    const effectiveEnd = !isNaN(endEp) ? endEp : ep + 3600000;
+    const { start } = cellEpochRange(ds, h, tz);
+    return ep < start && effectiveEnd > start;
+}
+
+function renderIvBlock(iv, ep, endEp, ds, h, tz) {
+    const past = ep < Date.now() ? ' past' : '';
+    const color = iv.personId ? getPersonColor(iv.personId) : null;
+    const bg = past ? '#444b57' : (color || '#3a6fd8');
+    const startM = epochToTzMinute(ep, tz);
+    const topPct = (startM / 60) * 100;
+    const spansNext = ivSpansCell(ep, endEp, ds, h + 1, tz);
+    let st = `top:${topPct.toFixed(1)}%;background:${bg};`;
+    if (spansNext) {
+        st += 'bottom:-1px;border-radius:4px 4px 0 0;';
+    } else if (!isNaN(endEp)) {
+        const durMin = (endEp - ep) / 60000;
+        st += `height:${Math.max((durMin / 60) * 100, 20).toFixed(1)}%;border-radius:4px;`;
+    } else {
+        st += 'min-height:18px;border-radius:4px;';
+    }
+    const endLabel = !isNaN(endEp) ? `–${epochToTzTime(endEp, tz)}` : '';
+    return `<div class="iv-block${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}" style="${st}">${epochToTzTime(ep, tz)}${endLabel} ${escapeHtml(iv.title)}</div>`;
+}
+
+function renderIvCont(iv, ep, endEp, ds, h, tz) {
+    const past = ep < Date.now() ? ' past' : '';
+    const color = iv.personId ? getPersonColor(iv.personId) : null;
+    const bg = past ? '#444b57' : (color || '#3a6fd8');
+    const isLast = !ivSpansCell(ep, endEp, ds, h + 1, tz);
+    let st = `background:${bg}55;border-left:3px solid ${bg};`;
+    if (isLast && !isNaN(endEp)) {
+        const { start } = cellEpochRange(ds, h, tz);
+        const inCellMs = Math.max(endEp - start, 0);
+        st += `top:-1px;height:${Math.max((inCellMs / 3600000) * 100, 15).toFixed(1)}%;border-radius:0 0 4px 4px;`;
+    } else {
+        st += 'top:-1px;bottom:-1px;';
+    }
+    return `<div class="iv-cont${past}" data-iv="${iv.id}" style="${st}"></div>`;
+}
+
 function relTime(epoch) {
     const diff = epoch - Date.now();
     const past = diff < 0;
@@ -820,7 +887,7 @@ function renderMonthView(tz, gridEl) {
     const first = new Date(calYear, calMonth, 1);
     const start = new Date(calYear, calMonth, 1 - first.getDay());
     const todayStr = epochToTzDate(Date.now(), tz);
-    const ivEps = getInterviews().map((iv) => ({ iv, ep: interviewEpoch(iv) })).filter((x) => !isNaN(x.ep));
+    const ivEps = getInterviews().map((iv) => ({ iv, ep: interviewEpoch(iv), endEp: interviewEndEpoch(iv) })).filter((x) => !isNaN(x.ep));
     const tsEps = getTimeSlots().map((s) => ({ s, ep: tsEpoch(s) })).filter((x) => !isNaN(x.ep));
     for (let i = 0; i < 42; i++) {
         const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
@@ -828,11 +895,12 @@ function renderMonthView(tz, gridEl) {
         const other = cur.getMonth() !== calMonth ? ' other' : '';
         const today = ds === todayStr ? ' today' : '';
         const dayEps = ivEps.filter(({ ep }) => epochToTzDate(ep, tz) === ds).sort((a, b) => a.ep - b.ep);
-        const evHtml = dayEps.map(({ iv, ep }) => {
+        const evHtml = dayEps.map(({ iv, ep, endEp }) => {
             const past = ep < Date.now() ? ' past' : '';
             const color = !past && iv.personId ? getPersonColor(iv.personId) : null;
             const style = color ? ` style="background:${color}"` : '';
-            return `<div class="cal-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}"${style}>${epochToTzTime(ep, tz)} ${escapeHtml(iv.title)}</div>`;
+            const endLabel = !isNaN(endEp) ? `–${epochToTzTime(endEp, tz)}` : '';
+            return `<div class="cal-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}"${style}>${epochToTzTime(ep, tz)}${endLabel} ${escapeHtml(iv.title)}</div>`;
         }).join('');
         const tsDayEps = tsEps.filter(({ ep }) => epochToTzDate(ep, tz) === ds);
         const tsHtml = tsDayEps.map(({ s, ep }) => {
@@ -855,7 +923,7 @@ function renderWeekView(tz, gridEl) {
     const ws = weekStart(calYear, calMonth, calDay);
     const days = Array.from({ length: 7 }, (_, i) => new Date(ws.getFullYear(), ws.getMonth(), ws.getDate() + i));
     const todayStr = epochToTzDate(Date.now(), tz);
-    const ivEps = getInterviews().map((iv) => ({ iv, ep: interviewEpoch(iv) })).filter((x) => !isNaN(x.ep));
+    const ivEps = getInterviews().map((iv) => ({ iv, ep: interviewEpoch(iv), endEp: interviewEndEpoch(iv) })).filter((x) => !isNaN(x.ep));
     const tsEps = getTimeSlots().map((s) => ({ s, ep: tsEpoch(s) })).filter((x) => !isNaN(x.ep));
     const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -871,13 +939,12 @@ function renderWeekView(tz, gridEl) {
             const ds = dsStr(d);
             const isToday = ds === todayStr ? ' today-col' : '';
             const timeStr = `${pad(h)}:00`;
-            const evs = ivEps.filter(({ ep }) => epochToTzDate(ep, tz) === ds && epochToTzHour(ep, tz) === h);
-            const evHtml = evs.map(({ iv, ep }) => {
-                const past = ep < Date.now() ? ' past' : '';
-                const color = !past && iv.personId ? getPersonColor(iv.personId) : null;
-                const style = color ? ` style="background:${color}"` : '';
-                return `<div class="wg-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}"${style}>${epochToTzTime(ep, tz)} ${escapeHtml(iv.title)}</div>`;
-            }).join('');
+            const ivStarts = ivEps.filter(({ ep }) => ivStartsInCell(ep, ds, h, tz));
+            const ivConts  = ivEps.filter(({ ep, endEp }) => ivSpansCell(ep, endEp, ds, h, tz));
+            const evHtml = [
+                ...ivStarts.map(({ iv, ep, endEp }) => renderIvBlock(iv, ep, endEp, ds, h, tz)),
+                ...ivConts.map(({ iv, ep, endEp }) => renderIvCont(iv, ep, endEp, ds, h, tz)),
+            ].join('');
             const slotsStart = tsEps.filter(({ s }) => slotStartsInCell(s, ds, h, tz));
             const slotsCont  = tsEps.filter(({ s }) => slotSpansCell(s, ds, h, tz));
             const hasCont = slotsCont.length > 0;
@@ -900,7 +967,7 @@ function renderWeekView(tz, gridEl) {
     gridEl.className = 'cal-week-day-grid';
     gridEl.innerHTML = html;
     insertNowLine(gridEl, tz);
-    gridEl.querySelectorAll('.wg-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
+    gridEl.querySelectorAll('.wg-event, .iv-block, .iv-cont').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
     gridEl.querySelectorAll('.wg-ts, .wg-ts-cont').forEach((el) => {
         el.onclick = (e) => { e.stopPropagation(); showTsContextMenu(e, el.dataset.tsid, el.dataset.date, el.dataset.time); };
     });
@@ -911,7 +978,7 @@ function renderDayView(tz, gridEl) {
     const d = new Date(calYear, calMonth, calDay);
     const ds = dsStr(d);
     const todayStr = epochToTzDate(Date.now(), tz);
-    const ivEps = getInterviews().map((iv) => ({ iv, ep: interviewEpoch(iv) })).filter((x) => !isNaN(x.ep));
+    const ivEps = getInterviews().map((iv) => ({ iv, ep: interviewEpoch(iv), endEp: interviewEndEpoch(iv) })).filter((x) => !isNaN(x.ep));
     const tsEps = getTimeSlots().map((s) => ({ s, ep: tsEpoch(s) })).filter((x) => !isNaN(x.ep));
     const isToday = ds === todayStr;
 
@@ -920,13 +987,12 @@ function renderDayView(tz, gridEl) {
     CAL_HOURS.forEach((h) => {
         const hLabel = h === 12 ? '12 PM' : h < 12 ? `${h} AM` : `${h - 12} PM`;
         const timeStr = `${pad(h)}:00`;
-        const evs = ivEps.filter(({ ep }) => epochToTzDate(ep, tz) === ds && epochToTzHour(ep, tz) === h);
-        const evHtml = evs.map(({ iv, ep }) => {
-            const past = ep < Date.now() ? ' past' : '';
-            const color = !past && iv.personId ? getPersonColor(iv.personId) : null;
-            const style = color ? ` style="background:${color}"` : '';
-            return `<div class="wg-event${past}" data-iv="${iv.id}" title="${escapeHtml(iv.title)}"${style}>${epochToTzTime(ep, tz)} ${escapeHtml(iv.title)}</div>`;
-        }).join('');
+        const ivStarts = ivEps.filter(({ ep }) => ivStartsInCell(ep, ds, h, tz));
+        const ivConts  = ivEps.filter(({ ep, endEp }) => ivSpansCell(ep, endEp, ds, h, tz));
+        const evHtml = [
+            ...ivStarts.map(({ iv, ep, endEp }) => renderIvBlock(iv, ep, endEp, ds, h, tz)),
+            ...ivConts.map(({ iv, ep, endEp }) => renderIvCont(iv, ep, endEp, ds, h, tz)),
+        ].join('');
         const slotsStart = tsEps.filter(({ s }) => slotStartsInCell(s, ds, h, tz));
         const slotsCont  = tsEps.filter(({ s }) => slotSpansCell(s, ds, h, tz));
         const hasCont = slotsCont.length > 0;
@@ -948,7 +1014,7 @@ function renderDayView(tz, gridEl) {
     gridEl.className = 'cal-week-day-grid';
     gridEl.innerHTML = html;
     insertNowLine(gridEl, tz);
-    gridEl.querySelectorAll('.wg-event').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
+    gridEl.querySelectorAll('.wg-event, .iv-block, .iv-cont').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); openDetail(el.dataset.iv); }; });
     gridEl.querySelectorAll('.wg-ts, .wg-ts-cont').forEach((el) => {
         el.onclick = (e) => { e.stopPropagation(); showTsContextMenu(e, el.dataset.tsid, el.dataset.date, el.dataset.time); };
     });
@@ -1039,6 +1105,7 @@ function openScheduleForm(id, presetDate, presetTime) {
     $('f_meetingType').value = iv?.meetingType || 'interview';
     $('f_date').value = iv?.date || presetDate || '';
     $('f_time').value = iv?.time || presetTime || '';
+    $('f_endTime').value = iv?.endTime || '';
     $('f_tz').value = iv?.tz || LOCAL_TZ;
     $('f_round').value = iv?.round || '';
     $('f_jobTitle').value = iv?.jobTitle || '';
@@ -1077,7 +1144,7 @@ function saveInterview() {
         title, company: $('f_company').value.trim(),
         meetingUrl: $('f_meetingUrl').value.trim(),
         meetingType: $('f_meetingType').value || 'interview',
-        date, time, tz: $('f_tz').value,
+        date, time, endTime: $('f_endTime').value || null, tz: $('f_tz').value,
         round: $('f_round').value.trim(),
         jobTitle: $('f_jobTitle').value.trim(),
         introduction: $('f_introduction').value.trim(),
@@ -1131,7 +1198,7 @@ function openDetail(id) {
     const linkedPerson = iv.personId ? getPersons().find((p) => p.id === iv.personId) : null;
     $('detailBody').innerHTML =
         (linkedPerson ? detailRow('Account', linkedPerson.name || '(unnamed)') : '') +
-        detailRow('When', `${fmtInTz(ep, iv.tz || LOCAL_TZ)}  (${iv.tz || LOCAL_TZ})`) +
+        detailRow('When', (() => { const eEp = interviewEndEpoch(iv); return `${fmtInTz(ep, iv.tz || LOCAL_TZ)}${!isNaN(eEp) ? ' – ' + fmtInTz(eEp, iv.tz || LOCAL_TZ) : ''}  (${iv.tz || LOCAL_TZ})`; })()) +
         meetingUrlHtml +
         detailRow('Meeting type', mt ? `${mt.icon} ${mt.label}` : (iv.meetingType || '')) +
         detailRow('Company', iv.company) +
