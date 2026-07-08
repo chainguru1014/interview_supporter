@@ -1196,9 +1196,8 @@ function openDetail(id) {
         ? `<div class="detail-row"><span class="k">Meeting URL</span><span class="v"><a href="${escapeHtml(iv.meetingUrl)}" target="_blank" rel="noopener">${escapeHtml(iv.meetingUrl)}</a></span></div>`
         : '';
     const linkedPerson = iv.personId ? getPersons().find((p) => p.id === iv.personId) : null;
-    const ACCOUNT_DETAIL_FIELDS = ['email', 'phone', 'nationality', 'workAuth', 'languages', 'links', 'candidateInfo'];
     const accountFieldsHtml = linkedPerson
-        ? ACCOUNT_DETAIL_FIELDS.map((f) => detailRow(FIELD_META[f].label, linkedPerson[f])).join('')
+        ? Object.keys(FIELD_META).map((f) => detailRow(FIELD_META[f].label, linkedPerson[f])).join('')
         : '';
     $('detailBody').innerHTML =
         (linkedPerson ? detailRow('Account', linkedPerson.name || '(unnamed)') : '') +
