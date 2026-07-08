@@ -1196,8 +1196,13 @@ function openDetail(id) {
         ? `<div class="detail-row"><span class="k">Meeting URL</span><span class="v"><a href="${escapeHtml(iv.meetingUrl)}" target="_blank" rel="noopener">${escapeHtml(iv.meetingUrl)}</a></span></div>`
         : '';
     const linkedPerson = iv.personId ? getPersons().find((p) => p.id === iv.personId) : null;
+    const ACCOUNT_DETAIL_FIELDS = ['email', 'phone', 'nationality', 'workAuth', 'languages', 'links', 'candidateInfo'];
+    const accountFieldsHtml = linkedPerson
+        ? ACCOUNT_DETAIL_FIELDS.map((f) => detailRow(FIELD_META[f].label, linkedPerson[f])).join('')
+        : '';
     $('detailBody').innerHTML =
         (linkedPerson ? detailRow('Account', linkedPerson.name || '(unnamed)') : '') +
+        (accountFieldsHtml ? `<div class="field-group"><h3>Account details</h3>${accountFieldsHtml}</div>` : '') +
         detailRow('When', (() => { const eEp = interviewEndEpoch(iv); return `${fmtInTz(ep, iv.tz || LOCAL_TZ)}${!isNaN(eEp) ? ' – ' + fmtInTz(eEp, iv.tz || LOCAL_TZ) : ''}  (${iv.tz || LOCAL_TZ})`; })()) +
         meetingUrlHtml +
         detailRow('Meeting type', mt ? `${mt.icon} ${mt.label}` : (iv.meetingType || '')) +
@@ -1210,8 +1215,18 @@ function openDetail(id) {
         detailRow('Reasons for leaving', iv.departureReasons) +
         detailRow('Interviewer(s)', ivText) +
         detailRow('Notes', iv.notes);
+    $('viewAccountBtn').classList.toggle('hidden', !linkedPerson);
     $('calendar').classList.add('hidden');
     $('interviewDetail').classList.remove('hidden');
+}
+
+function viewAccountFromDetail() {
+    const iv = detailInterviewId ? getInterviews().find((x) => x.id === detailInterviewId) : null;
+    if (!iv || !iv.personId) return;
+    setActivePerson(iv.personId);
+    buildSettingsFields();
+    $('interviewDetail').classList.add('hidden');
+    $('settings').classList.remove('hidden');
 }
 
 function useForInterview() {
@@ -1521,6 +1536,7 @@ $('deleteInterview').onclick = deleteInterview;
 $('closeScheduleForm').onclick = () => { $('scheduleForm').classList.add('hidden'); $('calendar').classList.remove('hidden'); };
 
 $('useForInterview').onclick = useForInterview;
+$('viewAccountBtn').onclick = viewAccountFromDetail;
 $('editInterview').onclick = () => openScheduleForm(detailInterviewId, null);
 $('closeDetail').onclick = () => { $('interviewDetail').classList.add('hidden'); $('calendar').classList.remove('hidden'); };
 
