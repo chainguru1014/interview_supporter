@@ -29,7 +29,7 @@ let pushing = false;
 let calYear, calMonth, calDay;
 let calView = localStorage.getItem('ia_calView') || 'month';
 const CAL_TZ_LEFT_DEFAULT = 'Europe/Berlin';
-const CAL_TZ_RIGHT_DEFAULT = 'America/New_York';
+const CAL_TZ_RIGHT_DEFAULT = 'America/Chicago';
 let calTzLeft  = localStorage.getItem('ia_calTzLeft')  || CAL_TZ_LEFT_DEFAULT;
 let calTzRight = localStorage.getItem('ia_calTzRight') || CAL_TZ_RIGHT_DEFAULT;
 let calTz = calTzLeft; // kept for any legacy helper calls
