@@ -504,6 +504,7 @@ function getProfileData() {
     ['jobTitle', 'jobDescription', 'whyThisCompany', 'departureReasons', 'company'].forEach((k) => {
         if (iv[k]) merged[k] = iv[k];
     });
+    if (iv.resume) merged.candidateInfo = iv.resume;
     merged.interviewers = iv.interviewers || [];
     return merged;
 }
@@ -1110,6 +1111,7 @@ function openScheduleForm(id, presetDate, presetTime) {
     $('f_round').value = iv?.round || '';
     $('f_jobTitle').value = iv?.jobTitle || '';
     $('f_introduction').value = iv?.introduction || '';
+    $('f_resume').value = iv?.resume || '';
     $('f_jobDescription').value = iv?.jobDescription || '';
     $('f_whyThisCompany').value = iv?.whyThisCompany || '';
     $('f_departureReasons').value = iv?.departureReasons || '';
@@ -1148,6 +1150,7 @@ function saveInterview() {
         round: $('f_round').value.trim(),
         jobTitle: $('f_jobTitle').value.trim(),
         introduction: $('f_introduction').value.trim(),
+        resume: $('f_resume').value.trim(),
         jobDescription: $('f_jobDescription').value.trim(),
         whyThisCompany: $('f_whyThisCompany').value.trim(),
         departureReasons: $('f_departureReasons').value.trim(),
@@ -1209,6 +1212,7 @@ function openDetail(id) {
         detailRow('Round / stage', iv.round) +
         detailRow('Target job title', iv.jobTitle) +
         detailRow('Introduction', iv.introduction) +
+        detailRow('Resume', iv.resume) +
         detailRow('Job description', iv.jobDescription) +
         detailRow('Why this company', iv.whyThisCompany) +
         detailRow('Reasons for leaving', iv.departureReasons) +
