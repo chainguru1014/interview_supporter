@@ -871,9 +871,11 @@ function renderCalendar() {
     if (calView === 'week') {
         renderWeekView(calTzLeft,  $('calGridLeft'));
         renderWeekView(calTzRight, $('calGridRight'));
+        syncGridScrollToNow();
     } else if (calView === 'day') {
         renderDayView(calTzLeft,  $('calGridLeft'));
         renderDayView(calTzRight, $('calGridRight'));
+        syncGridScrollToNow();
     } else {
         renderMonthView(calTzLeft,  $('calGridLeft'));
         renderMonthView(calTzRight, $('calGridRight'));
@@ -1062,9 +1064,20 @@ function insertNowLine(gridEl, tz) {
     line.className = 'now-line';
     line.style.top = `${(m / 60) * 100}%`;
     cell.appendChild(line);
-    // Scroll so the now-line is roughly centered in the visible area
-    const target = Math.max(0, cell.offsetTop - gridEl.clientHeight / 2 + 26);
-    gridEl.scrollTop = target;
+}
+
+// Both panes share the same row layout (same hours, same day columns), so
+// centering both on the left pane's "now" row keeps them showing the same
+// row range — an event visible on one side stays visible on the other.
+function syncGridScrollToNow() {
+    const leftGrid = $('calGridLeft');
+    const rightGrid = $('calGridRight');
+    const nowLine = leftGrid.querySelector('.now-line');
+    const cell = nowLine ? nowLine.parentElement : null;
+    if (!cell) return;
+    const target = Math.max(0, cell.offsetTop - leftGrid.clientHeight / 2 + 26);
+    leftGrid.scrollTop = target;
+    rightGrid.scrollTop = target;
 }
 
 // ===========================================================================
@@ -1561,6 +1574,23 @@ $('questionInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' &&
 document.querySelectorAll('.modal-close').forEach((btn) => {
     btn.onclick = () => { const ov = btn.closest('.overlay'); if (ov) ov.classList.add('hidden'); };
 });
+
+// Keep the two timezone calendar panes scrolled together — scrolling either
+// one mirrors the same row range to the other, so an event visible on one
+// side stays visible on the other.
+(function setupCalScrollSync() {
+    const left = $('calGridLeft');
+    const right = $('calGridRight');
+    let syncing = false;
+    left.addEventListener('scroll', () => {
+        if (syncing) return;
+        syncing = true; right.scrollTop = left.scrollTop; syncing = false;
+    });
+    right.addEventListener('scroll', () => {
+        if (syncing) return;
+        syncing = true; left.scrollTop = right.scrollTop; syncing = false;
+    });
+})();
 
 // ===========================================================================
 // Time slot context menu (click on a slot chip → edit or schedule interview)
