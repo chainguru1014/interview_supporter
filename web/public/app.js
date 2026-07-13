@@ -1587,7 +1587,11 @@ async function startListening() {
         micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (e) { setStatus('Microphone permission denied', 'error'); return; }
     try {
-        mediaStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        // systemAudio: 'include' is a Chromium-only hint that makes the "Share
+        // system audio" checkbox available when the user picks "Entire Screen"
+        // — sharing an individual Window never carries audio in Chromium, no
+        // matter what's requested here (see the error message below).
+        mediaStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true, systemAudio: 'include' });
     } catch (e) {
         stopTracks();
         setStatus('Screen/tab share permission denied', 'error');
@@ -1596,7 +1600,7 @@ async function startListening() {
 
     const interviewerTracks = mediaStream.getAudioTracks();
     if (interviewerTracks.length === 0) {
-        setStatus('No shared audio — re-share and tick "Share tab audio"', 'error');
+        setStatus('No audio captured — sharing a "Window" never carries audio; pick the Meet TAB + tick "Share tab audio", or "Entire screen" + tick "Share system audio"', 'error');
         stopTracks();
         return;
     }
