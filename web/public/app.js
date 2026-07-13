@@ -1768,6 +1768,11 @@ async function getAnswer() {
     const question = ($('questionInput').value || '').trim();
     if (!question) return;
     interviewerBuffer = [];   // consumed — next interviewer speech starts a fresh question
+    // Force the next transcript segment to start a brand-new bubble instead of
+    // merging into the one just answered — the click is a hard cut point, even
+    // if the same speaker (e.g. mic-as-interviewer test mode) keeps talking.
+    lastSpeaker = null;
+    lastBubbleTextEl = null;
 
     answering = true;
     setStatus('Thinking…', 'working');
