@@ -12,8 +12,15 @@
     <div id="login" class="overlay">
         <div class="login-card">
             <h1>🎯 Interview Assistant</h1>
-            <p class="muted">Enter the access password to continue.</p>
-            <input id="loginPassword" type="password" placeholder="Access password" autocomplete="current-password" />
+            <p class="muted">Who's logging in?</p>
+            <select id="loginIdentity">
+                <option value="chris">Chris</option>
+                <option value="amrit">Amrit</option>
+            </select>
+            <div id="loginPwField">
+                <p class="muted">Enter the access password to continue.</p>
+                <input id="loginPassword" type="password" placeholder="Access password" autocomplete="current-password" />
+            </div>
             <button id="loginBtn">Enter</button>
             <p id="loginError" class="error hidden"></p>
         </div>
@@ -23,6 +30,10 @@
         <header>
             <div class="brand">🎯 Interview Assistant <span class="tag">web</span></div>
             <div class="header-controls">
+                <select id="identitySwitch" class="identity-switch" title="Switch who you are">
+                    <option value="chris">👤 Chris</option>
+                    <option value="amrit">👤 Amrit</option>
+                </select>
                 <select id="meetingType" title="Meeting type"></select>
                 <button id="scheduleBtn" class="ghost">📅 Schedule</button>
                 <button id="trackBtn" class="ghost" title="View hiring process history across all rounds">🗂 Track</button>
@@ -39,7 +50,20 @@
         </div>
 
         <main>
-            <!-- Left: live transcript + controls -->
+            <!-- Left: chat between Chris and Amrit -->
+            <section class="panel chat-panel">
+                <div class="panel-head">
+                    <h2>💬 Chat</h2>
+                    <span id="chatPeerLabel" class="muted" style="font-size:12px"></span>
+                </div>
+                <div id="chatMessages" class="chat-messages"></div>
+                <div class="chat-input-row">
+                    <input id="chatInput" type="text" placeholder="Message..." autocomplete="off" />
+                    <button id="chatSendBtn" class="primary">Send</button>
+                </div>
+            </section>
+
+            <!-- Middle: live transcript + controls -->
             <section class="panel transcript-panel">
                 <div class="panel-head">
                     <h2>Live transcript</h2>

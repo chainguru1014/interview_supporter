@@ -90,6 +90,56 @@ pm2 save
 # put nginx + certbot in front for HTTPS (mic/screen capture needs HTTPS)
 ```
 
+## Telegram chat bridge (optional)
+
+The **Chat** panel (Chris ⟷ Amrit, left of the transcript) works standalone —
+messages are stored on the server and polled by both browsers every few
+seconds. You can optionally bridge it to a Telegram group so messages sent
+from either side show up on both the website and in Telegram.
+
+**Why a group, not a DM:** a Telegram bot can only see messages in chats it's
+a member of — it cannot read a private 1:1 DM between two humans. So the
+synced thread has to be a small group containing Chris, Amrit, and the bot.
+
+1. **Create the bot.** In Telegram, message **@BotFather** → `/newbot` →
+   follow the prompts → it gives you a token like `123456:ABC-...`.
+2. **Create a group** with Chris and Amrit in it, then add the bot to that
+   group (search its @username and add as a member — not just a channel admin).
+3. **Add the token to `.env`** (project root, next to `OPENAI_API_KEY`):
+   ```
+   TELEGRAM_BOT_TOKEN=123456:ABC-your-token-here
+   ```
+4. **Restart the server**, then send any message in the group. The server
+   log will print the group's `chat_id`:
+   ```
+   [telegram] saw a message in chat_id=-1001234567890 ("Your Group Name") — set TELEGRAM_CHAT_ID=-1001234567890 in .env to enable the bridge.
+   ```
+   Copy that into `.env`:
+   ```
+   TELEGRAM_CHAT_ID=-1001234567890
+   ```
+5. **(Optional) Map Telegram accounts to Chris/Amrit.** Without this, incoming
+   Telegram messages still show up on the website, just labeled with the
+   sender's raw Telegram first name instead of "Chris"/"Amrit". Send another
+   message after adding `TELEGRAM_CHAT_ID` and the log will show the mapping
+   to add:
+   ```
+   [telegram] message from unmapped Telegram user_id=987654321 (Chris) — set TELEGRAM_CHRIS_USER_ID or TELEGRAM_AMRIT_USER_ID in .env to map them.
+   ```
+   ```
+   TELEGRAM_CHRIS_USER_ID=987654321
+   TELEGRAM_AMRIT_USER_ID=123123123
+   ```
+6. **Restart the server once more.** From then on:
+   - A message sent on the website is relayed into the Telegram group as
+     `Chris: ...` / `Amrit: ...`.
+   - A message sent by either of you in the Telegram group appears in the
+     website chat panel, tagged "· via Telegram".
+
+No public webhook or extra deploy config is needed — the server long-polls
+Telegram's `getUpdates` in the background. This is entirely optional: leave
+`TELEGRAM_BOT_TOKEN` unset and the website chat keeps working on its own.
+
 ## Cost note
 
 Every transcription segment and every answer spends **your** OpenAI credits.
@@ -105,3 +155,7 @@ leaks. Whisper is ~$0.006/min of audio; gpt-4o answers cost per token.
 | `PORT` | no | 3002 | HTTP port |
 | `CHAT_MODEL` | no | gpt-4o | Streaming chat model |
 | `VISION_MODEL` | no | gpt-4o | Screen-analysis model |
+| `TELEGRAM_BOT_TOKEN` | no | — | Enables the Telegram chat bridge (from @BotFather) |
+| `TELEGRAM_CHAT_ID` | no | — | The Telegram group id to sync (see server log after sending a message) |
+| `TELEGRAM_CHRIS_USER_ID` | no | — | Maps a Telegram account to "Chris" in the chat panel |
+| `TELEGRAM_AMRIT_USER_ID` | no | — | Maps a Telegram account to "Amrit" in the chat panel |

@@ -47,6 +47,17 @@ const CHAT_MODEL = process.env.CHAT_MODEL || 'gpt-4o';
 const VISION_MODEL = process.env.VISION_MODEL || 'gpt-4o';
 const TRANSCRIBE_MODEL = 'whisper-1';
 
+// Telegram bridge (optional) — mirrors the Chris/Amrit chat into a Telegram
+// group so messages sent on either side show up on both. See web/README.md
+// for the one-time BotFather / group setup.
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || null;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || null;
+const TELEGRAM_USER_IDS = {
+    chris: process.env.TELEGRAM_CHRIS_USER_ID || null,
+    amrit: process.env.TELEGRAM_AMRIT_USER_ID || null,
+};
+const TELEGRAM_API = TELEGRAM_BOT_TOKEN ? `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}` : null;
+
 if (!API_KEY) {
     console.error('\n[FATAL] OPENAI_API_KEY is not set. Add it to the project-root .env file.\n');
     process.exit(1);
@@ -86,7 +97,7 @@ const upload = multer({
 // single JSON store on disk. `rev` lets clients detect changes and refetch.
 const DATA_DIR = path.join(__dirname, 'data');
 const STORE_FILE = path.join(DATA_DIR, 'store.json');
-let store = { rev: 0, profile: {}, persons: [], activePersonId: null, interviews: [], timeSlots: [] };
+let store = { rev: 0, profile: {}, persons: [], activePersonId: null, interviews: [], timeSlots: [], chatMessages: [] };
 try {
     if (fs.existsSync(STORE_FILE)) {
         store = Object.assign(store, JSON.parse(fs.readFileSync(STORE_FILE, 'utf8')));
@@ -170,6 +181,114 @@ app.put('/api/data', (req, res) => {
     persistStore();
     res.json({ rev: store.rev });
 });
+
+// --- Chat between the two users (Chris / Amrit) -----------------------------
+// Simple polled chat, shared on the same disk store as everything else.
+// History is capped so the store file and the poll payload stay small.
+// Optionally bridged to a Telegram group — see the Telegram section below.
+app.get('/api/chat-messages', (req, res) => {
+    res.json({ messages: store.chatMessages || [] });
+});
+
+app.post('/api/chat-messages', (req, res) => {
+    const { sender, text } = req.body || {};
+    if (!sender || !text || !text.trim()) return res.status(400).json({ error: 'sender and text are required' });
+    const msg = { id: crypto.randomBytes(6).toString('hex'), sender, text: text.trim(), ts: Date.now() };
+    store.chatMessages = [...(store.chatMessages || []), msg].slice(-500);
+    persistStore();
+    res.json({ message: msg });
+    relayToTelegram(msg);
+});
+
+// --- Telegram bridge (optional) --------------------------------------------
+// A bot can only see messages in chats it's a member of — not a private 1:1
+// DM between two humans — so the synced thread is a small Telegram group
+// with Chris, Amrit, and the bot. Long-polls getUpdates (no public webhook
+// needed) and relays each side into the other. Entirely inert if
+// TELEGRAM_BOT_TOKEN isn't set.
+let telegramBotId = null;
+
+async function telegramCall(method, params) {
+    const res = await fetch(`${TELEGRAM_API}/${method}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params || {}),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(`Telegram ${method} failed: ${data.description || res.status}`);
+    return data.result;
+}
+
+function identityFromTelegramUserId(userId) {
+    if (TELEGRAM_USER_IDS.chris && String(userId) === String(TELEGRAM_USER_IDS.chris)) return 'chris';
+    if (TELEGRAM_USER_IDS.amrit && String(userId) === String(TELEGRAM_USER_IDS.amrit)) return 'amrit';
+    return null;
+}
+
+async function relayToTelegram(msg) {
+    if (!TELEGRAM_API || !TELEGRAM_CHAT_ID) return;
+    const label = msg.sender === 'chris' ? 'Chris' : msg.sender === 'amrit' ? 'Amrit' : msg.sender;
+    try {
+        await telegramCall('sendMessage', { chat_id: TELEGRAM_CHAT_ID, text: `${label}: ${msg.text}` });
+    } catch (err) { console.error('[telegram] relay to Telegram failed:', err.message); }
+}
+
+async function handleTelegramUpdate(update) {
+    const msg = update.message;
+    if (!msg || !msg.text) return;
+    if (msg.from?.is_bot) return; // our own relayed messages coming back — ignore
+
+    if (!TELEGRAM_CHAT_ID) {
+        console.log(`[telegram] saw a message in chat_id=${msg.chat.id} ("${msg.chat.title || msg.chat.type}") — set TELEGRAM_CHAT_ID=${msg.chat.id} in .env to enable the bridge.`);
+        return;
+    }
+    if (String(msg.chat.id) !== String(TELEGRAM_CHAT_ID)) return; // a different chat than the configured group
+
+    let sender = identityFromTelegramUserId(msg.from.id);
+    if (!sender) {
+        console.log(`[telegram] message from unmapped Telegram user_id=${msg.from.id} (${msg.from.first_name}) — set TELEGRAM_CHRIS_USER_ID or TELEGRAM_AMRIT_USER_ID in .env to map them.`);
+        sender = msg.from.first_name || 'Telegram';
+    }
+    const chatMsg = { id: crypto.randomBytes(6).toString('hex'), sender, text: msg.text.trim(), ts: Date.now(), viaTelegram: true };
+    store.chatMessages = [...(store.chatMessages || []), chatMsg].slice(-500);
+    persistStore();
+}
+
+async function pollTelegramUpdates(startOffset) {
+    let offset = startOffset;
+    while (true) {
+        try {
+            const updates = await telegramCall('getUpdates', { offset, timeout: 25 });
+            for (const update of updates) {
+                offset = update.update_id + 1;
+                await handleTelegramUpdate(update);
+            }
+        } catch (err) {
+            console.error('[telegram] poll error (retrying in 5s):', err.message);
+            await new Promise((r) => setTimeout(r, 5000));
+        }
+    }
+}
+
+async function startTelegramBridge() {
+    if (!TELEGRAM_API) return;
+    let me;
+    try {
+        me = await telegramCall('getMe');
+        telegramBotId = me.id;
+    } catch (err) {
+        console.error('[telegram] could not start — check TELEGRAM_BOT_TOKEN:', err.message);
+        return;
+    }
+    console.log(`[telegram] bridge active as @${me.username}${TELEGRAM_CHAT_ID ? '' : ' — send a message in your group to discover its chat_id (see server logs)'}`);
+    // Skip any backlog from before this boot so a restart doesn't replay old messages.
+    let offset;
+    try {
+        const backlog = await telegramCall('getUpdates', { timeout: 0 });
+        if (backlog.length) offset = backlog[backlog.length - 1].update_id + 1;
+    } catch (err) { /* start from whatever Telegram gives us next */ }
+    pollTelegramUpdates(offset);
+}
 
 // --- Transcription (Whisper) ----------------------------------------------
 app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
@@ -281,4 +400,5 @@ app.listen(PORT, () => {
     console.log(`\n  Interview Assistant (web) running on http://localhost:${PORT}`);
     console.log(`  Chat model: ${CHAT_MODEL} | Vision: ${VISION_MODEL} | Transcribe: ${TRANSCRIBE_MODEL}`);
     console.log(`  Password protection: ${ACCESS_PASSWORD ? 'ON' : 'OFF (dev)'}\n`);
+    startTelegramBridge();
 });

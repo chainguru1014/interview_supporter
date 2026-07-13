@@ -14,6 +14,8 @@
 // ---- State ----------------------------------------------------------------
 const SEGMENT_MS = 5000;
 let password = localStorage.getItem('ia_password') || '';
+let identity = localStorage.getItem('ia_identity') || '';   // 'chris' | 'amrit' — which of the two of you this browser is
+let pwRequired = true;   // set from /api/meta on init(); the login card hides the password field when false
 let meetingTypes = [];
 let listening = false;
 let mediaStream = null;   // screen/tab capture (video + interviewer audio) — also reused for screenshot analysis
@@ -24,6 +26,15 @@ let history = [];
 let answering = false;          // manual/immediate answer in flight (Get answer / Analyze screen)
 let interviewerBuffer = [];     // interviewer transcript chunks accumulated since the last "Get answer" click
 let meRecentLines = [];         // last few things *I* said (mic) — passed as context so answers stay consistent
+let lastSpeaker = null;         // speaker of the most recent transcript bubble — same speaker merges into one paragraph
+let lastBubbleTextEl = null;    // the <span class="bubble-text"> currently being appended to
+
+// Pure filler/pleasantries that add no content on their own (greetings, thanks,
+// closings, acknowledgements) — dropped so they don't clutter the transcript.
+// Anything with actual content alongside them (e.g. "Thanks, and what stack
+// did you use?") does NOT match and is kept in full.
+const FILLER_RE = /^(thanks?( you)?( very much| so much)?|no,? thank you|bye+([\s-]?bye)?|goodbye|good\s?bye|great|nice|cool|perfect|awesome|sounds good|got it|okay|ok|alright|all right|have a (good|nice|great) (one|day)|take care|see you( soon| later| around)?|no problem|you'?re welcome|welcome)[.,!\s]*$/i;
+function isFiller(text) { return FILLER_RE.test(text.trim()); }
 
 // TEMPORARY TEST MODE — flip to false once testing with a real second audio
 // source (e.g. sharing the Google Meet tab) is available. While true, only
@@ -65,22 +76,27 @@ async function api(path, opts = {}) {
 }
 
 async function doLogin() {
+    const chosenIdentity = $('loginIdentity').value;
     const pw = $('loginPassword').value;
     const errEl = $('loginError');
     errEl.classList.add('hidden');
     try {
-        const res = await fetch('/api/login', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password: pw }),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.ok) {
-            errEl.textContent = data.error || 'Login failed';
-            errEl.classList.remove('hidden');
-            return;
+        if (pwRequired) {
+            const res = await fetch('/api/login', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: pw }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) {
+                errEl.textContent = data.error || 'Login failed';
+                errEl.classList.remove('hidden');
+                return;
+            }
+            password = pw;
+            localStorage.setItem('ia_password', pw);
         }
-        password = pw;
-        localStorage.setItem('ia_password', pw);
+        identity = chosenIdentity;
+        localStorage.setItem('ia_identity', identity);
         await startApp();
     } catch (e) {
         errEl.textContent = 'Could not reach the server.';
@@ -98,8 +114,16 @@ function logout() {
 
 async function init() {
     const meta = await fetch('/api/meta').then((r) => r.json()).catch(() => ({}));
-    if (!meta.passwordRequired) { password = ''; await startApp(); return; }
-    if (password) {
+    pwRequired = !!meta.passwordRequired;
+    $('loginPwField').classList.toggle('hidden', !pwRequired);
+    if ($('loginIdentity') && identity) $('loginIdentity').value = identity;
+    if (!pwRequired) {
+        password = '';
+        if (identity) { await startApp(); return; }
+        $('login').classList.remove('hidden');
+        return;
+    }
+    if (password && identity) {
         const res = await fetch('/api/login', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ password }),
@@ -113,6 +137,8 @@ async function init() {
 async function startApp() {
     $('login').classList.add('hidden');
     $('app').classList.remove('hidden');
+    $('identitySwitch').value = identity;
+    updateChatPeerLabel();
     await loadMeetingTypes();
     populateTimezones();
     populateScheduleMeetingTypes();
@@ -125,8 +151,10 @@ async function startApp() {
     refreshActiveBanner();
     updateNotifyButton();
     checkReminders();
+    await loadChatMessages();
     setInterval(checkReminders, 20000);
     setInterval(loadData, 12000);     // sync shared data across clients
+    setInterval(loadChatMessages, 3000);  // chat feels live without a websocket
 }
 
 // ===========================================================================
@@ -1480,6 +1508,57 @@ function fireReminder(iv, label, ep) {
 }
 
 // ===========================================================================
+// Chat between Chris and Amrit — polled every few seconds (no websocket),
+// Telegram-style: mine on the right, theirs on the left. History lives on
+// the server so both of you see the same thread from any device.
+// ===========================================================================
+let chatMessages = [];
+
+// Normally 'chris'/'amrit', but a Telegram message from someone the server
+// hasn't mapped yet (TELEGRAM_CHRIS_USER_ID / TELEGRAM_AMRIT_USER_ID) shows
+// up with their raw Telegram first name instead — surfaced rather than dropped.
+function identityLabel(who) { return who === 'chris' ? 'Chris' : who === 'amrit' ? 'Amrit' : who; }
+function otherIdentity() { return identity === 'chris' ? 'amrit' : 'chris'; }
+function updateChatPeerLabel() { $('chatPeerLabel').textContent = `You are ${identityLabel(identity)} — chatting with ${identityLabel(otherIdentity())}`; }
+
+async function loadChatMessages() {
+    try {
+        const res = await api('/api/chat-messages');
+        const data = await res.json();
+        const incoming = data.messages || [];
+        if (incoming.length === chatMessages.length &&
+            incoming[incoming.length - 1]?.id === chatMessages[chatMessages.length - 1]?.id) return;
+        chatMessages = incoming;
+        renderChat();
+    } catch (e) { /* offline — keep showing what we already have */ }
+}
+
+function renderChat() {
+    const box = $('chatMessages');
+    const wasNearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    box.innerHTML = chatMessages.map((m) => {
+        const mine = m.sender === identity;
+        const via = m.viaTelegram ? ' · via Telegram' : '';
+        return `<div class="chat-row ${mine ? 'me' : 'other'}"><div class="chat-bubble"><span class="bubble-label">${identityLabel(m.sender)}${via}</span>${escapeHtml(m.text)}</div></div>`;
+    }).join('') || '<p class="muted chat-empty">No messages yet — say hi 👋</p>';
+    if (wasNearBottom) box.scrollTop = box.scrollHeight;
+}
+
+async function sendChatMessage() {
+    const input = $('chatInput');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    try {
+        await api('/api/chat-messages', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sender: identity, text }),
+        });
+        await loadChatMessages();
+    } catch (e) { input.value = text; /* leave it so nothing is lost */ }
+}
+
+// ===========================================================================
 // Audio capture + transcription
 // ===========================================================================
 function pickMime() {
@@ -1560,16 +1639,27 @@ async function transcribeBlob(blob, speaker) {
         const res = await api('/api/transcribe', { method: 'POST', body: fd });
         const data = await res.json();
         const text = (data.text || '').trim();
-        if (text) appendTranscript(text, speaker);
+        if (text && !isFiller(text)) appendTranscript(text, speaker);
     } catch (e) { console.warn('transcribe failed', e.message); }
 }
 
+// Each 5s segment is transcribed independently, but a real speaking turn
+// usually spans several segments — so consecutive segments from the SAME
+// speaker are merged into one running paragraph instead of separate bubbles.
+// A new bubble only starts when the other speaker's turn interrupts.
 function appendTranscript(text, speaker) {
     const t = $('transcript');
-    const row = document.createElement('div');
-    row.className = `transcript-row ${speaker}`;
-    row.innerHTML = `<div class="bubble"><span class="bubble-label">${speaker === 'me' ? 'You' : 'Interviewer'}</span>${escapeHtml(text)}</div>`;
-    t.appendChild(row);
+    if (speaker === lastSpeaker && lastBubbleTextEl) {
+        lastBubbleTextEl.textContent += ' ' + text;
+    } else {
+        const row = document.createElement('div');
+        row.className = `transcript-row ${speaker}`;
+        row.innerHTML = `<div class="bubble"><span class="bubble-label">${speaker === 'me' ? 'You' : 'Interviewer'}</span><span class="bubble-text"></span></div>`;
+        lastBubbleTextEl = row.querySelector('.bubble-text');
+        lastBubbleTextEl.textContent = text;
+        t.appendChild(row);
+    }
+    lastSpeaker = speaker;
     t.scrollTop = t.scrollHeight;
     if (speaker === 'interviewer') {
         // Accumulate until "Get answer" is clicked — a question can span
@@ -1596,6 +1686,8 @@ function stopListening() {
         recorders[speaker] = null;
     });
     stopTracks();
+    lastSpeaker = null;
+    lastBubbleTextEl = null;
     $('listenBtn').textContent = '▶ Start';
     $('listenBtn').classList.remove('active');
     setStatus('Idle', 'idle');
@@ -1736,6 +1828,15 @@ $('loginBtn').onclick = doLogin;
 $('loginPassword').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
 $('logoutBtn').onclick = logout;
 
+$('identitySwitch').onchange = () => {
+    identity = $('identitySwitch').value;
+    localStorage.setItem('ia_identity', identity);
+    updateChatPeerLabel();
+    renderChat();
+};
+$('chatSendBtn').onclick = sendChatMessage;
+$('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChatMessage(); });
+
 $('settingsBtn').onclick = () => { buildSettingsFields(); $('settings').classList.remove('hidden'); };
 $('saveSettings').onclick = saveSettings;
 $('addPersonBtn').onclick = addPerson;
@@ -1808,6 +1909,8 @@ $('clearBtn').onclick = () => {
     history = [];
     interviewerBuffer = [];
     meRecentLines = [];
+    lastSpeaker = null;
+    lastBubbleTextEl = null;
 };
 $('questionInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) getAnswer(); });
 
