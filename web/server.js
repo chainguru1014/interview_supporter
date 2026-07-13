@@ -200,6 +200,14 @@ app.post('/api/chat-messages', (req, res) => {
     relayToTelegram(msg);
 });
 
+// Wipes the shared chat for everyone — used when either side clicks "Start"
+// on a fresh interview session. Does not touch the Telegram group itself.
+app.delete('/api/chat-messages', (req, res) => {
+    store.chatMessages = [];
+    persistStore();
+    res.json({ ok: true });
+});
+
 // --- Telegram bridge (optional) --------------------------------------------
 // A bot can only see messages in chats it's a member of — not a private 1:1
 // DM between two humans — so the synced thread is a small Telegram group

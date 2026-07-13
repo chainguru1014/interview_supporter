@@ -1566,6 +1566,14 @@ async function sendChatMessage() {
     } catch (e) { input.value = text; /* leave it so nothing is lost */ }
 }
 
+// Wipes the shared chat for both of you — only called when "Start" begins a
+// fresh session (not by the transcript's "Clear" button, which leaves chat alone).
+async function clearChatMessages() {
+    try { await api('/api/chat-messages', { method: 'DELETE' }); } catch (e) { /* best effort */ }
+    chatMessages = [];
+    renderChat();
+}
+
 // ===========================================================================
 // Audio capture + transcription
 // ===========================================================================
@@ -1593,6 +1601,7 @@ function resetTranscriptAndAnswer() {
 
 async function startListening() {
     resetTranscriptAndAnswer();
+    clearChatMessages();
     if (TEST_MIC_AS_INTERVIEWER) {
         // Test mode: capture only the mic and treat it as the interviewer's
         // voice, so the transcript + Get-answer flow can be exercised solo.
