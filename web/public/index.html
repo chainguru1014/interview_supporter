@@ -25,6 +25,7 @@
             <div class="header-controls">
                 <select id="meetingType" title="Meeting type"></select>
                 <button id="scheduleBtn" class="ghost">📅 Schedule</button>
+                <button id="trackBtn" class="ghost" title="View hiring process history across all rounds">🗂 Track</button>
                 <button id="settingsBtn" class="ghost">⚙ Context</button>
                 <button id="notifyBtn" class="ghost" title="Enable reminder notifications">🔔</button>
                 <button id="logoutBtn" class="ghost">Log out</button>
@@ -43,23 +44,16 @@
                 <div class="panel-head">
                     <h2>Live transcript</h2>
                     <div class="audio-controls">
-                        <select id="audioSource" title="Audio source">
-                            <option value="screen">Share tab/screen audio</option>
-                            <option value="mic">Microphone</option>
-                        </select>
-                        <button id="listenBtn" class="primary">▶ Start</button>
+                        <button id="listenBtn" class="primary" title="Requests your microphone (you) + shared tab/screen audio (interviewer)">▶ Start</button>
                     </div>
                 </div>
                 <div class="status-row">
                     <span id="status" class="status idle">Idle</span>
-                    <label class="auto-toggle">
-                        <input type="checkbox" id="autoRespond" /> Auto-answer
-                    </label>
                     <button id="captureBtn" class="ghost small" title="Analyze the shared screen">📷 Analyze screen</button>
                 </div>
                 <div id="transcript" class="transcript" placeholder="Transcribed speech will appear here..."></div>
                 <div class="ask-row">
-                    <textarea id="questionInput" rows="2" placeholder="Type a question, or edit the transcript above..."></textarea>
+                    <textarea id="questionInput" rows="2" placeholder="Interviewer's question will appear here — edit if needed, then click Get answer..."></textarea>
                     <button id="askBtn" class="primary">Get answer</button>
                     <button id="clearBtn" class="ghost">Clear</button>
                 </div>
@@ -163,7 +157,23 @@
                 <div class="field field-wide"><label>Timezone</label><select id="f_tz"></select></div>
                 <div class="field"><label>Round / stage</label><input id="f_round" placeholder="e.g. Technical, HR, Final" /></div>
                 <div class="field"><label>Target job title</label><input id="f_jobTitle" /></div>
+                <div class="field"><label>Status</label>
+                    <select id="f_status">
+                        <option value="scheduled">🕓 Scheduled</option>
+                        <option value="done">✅ Done</option>
+                        <option value="not_done">❌ Not done</option>
+                    </select>
+                </div>
             </div>
+
+            <div class="field field-wide">
+                <label><input type="checkbox" id="f_isNextStep" /> This is the next round of an earlier interview (same hiring process)</label>
+            </div>
+            <div id="nextStepFields" class="field-grid hidden">
+                <div class="field"><label>Original company</label><select id="f_prevCompany"></select></div>
+                <div class="field"><label>Original interview / round</label><select id="f_prevInterviewId"></select></div>
+            </div>
+
             <div class="field"><label>Introduction</label><textarea id="f_introduction" placeholder="Brief self-introduction to use at the start of the interview…"></textarea></div>
             <div class="field"><label>Resume</label><textarea id="f_resume" placeholder="Paste resume text to use for this interview…"></textarea></div>
             <div class="field"><label>Job description</label><textarea id="f_jobDescription"></textarea></div>
@@ -200,6 +210,16 @@
                 <button id="tsSave" class="primary">Save slots</button>
                 <button id="tsCancel" class="ghost">Cancel</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Hiring process tracker modal -->
+    <div id="trackModal" class="overlay hidden">
+        <div class="settings-card track-card">
+            <button class="modal-close" title="Close">✕</button>
+            <h2>🗂 Hiring process tracker</h2>
+            <p class="muted">Each card is one hiring process end-to-end — every linked round with its status, grouped by company.</p>
+            <div id="trackList"></div>
         </div>
     </div>
 

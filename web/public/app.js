@@ -16,11 +16,21 @@ const SEGMENT_MS = 5000;
 let password = localStorage.getItem('ia_password') || '';
 let meetingTypes = [];
 let listening = false;
-let mediaStream = null;
-let audioStream = null;
-let recorder = null;
+let mediaStream = null;   // screen/tab capture (video + interviewer audio) — also reused for screenshot analysis
+let micStream = null;     // raw mic capture (kept for track cleanup)
+const audioStreams = { me: null, interviewer: null };
+const recorders = { me: null, interviewer: null };
 let history = [];
-let answering = false;
+let answering = false;          // manual/immediate answer in flight (Get answer / Analyze screen)
+let interviewerBuffer = [];     // interviewer transcript chunks accumulated since the last "Get answer" click
+let meRecentLines = [];         // last few things *I* said (mic) — passed as context so answers stay consistent
+
+// TEMPORARY TEST MODE — flip to false once testing with a real second audio
+// source (e.g. sharing the Google Meet tab) is available. While true, only
+// the microphone is captured and it is treated as the INTERVIEWER's voice,
+// so the transcript + Get-answer flow can be exercised solo. Your own "me"
+// column simply never appears since nothing is captured for it.
+const TEST_MIC_AS_INTERVIEWER = true;
 
 // Shared, server-backed data
 let DATA = { rev: -1, persons: [], activePersonId: null, interviews: [], timeSlots: [] };
@@ -494,18 +504,21 @@ function saveSettings() {
 }
 
 // The profile sent to the AI: person info (from interview's linked person or active person),
-// overridden by interview-specific fields.
+// overridden by interview-specific fields, plus a rolling window of what the
+// candidate has actually said out loud so far in this live interview.
 function getProfileData() {
     const iv = activeInterviewId ? getInterviews().find((x) => x.id === activeInterviewId) : null;
     const linkedPerson = iv?.personId ? getPersons().find((p) => p.id === iv.personId) : null;
     const global = linkedPerson || getGlobalProfile();
-    if (!iv) return global;
     const merged = { ...global };
-    ['jobTitle', 'jobDescription', 'whyThisCompany', 'departureReasons', 'company'].forEach((k) => {
-        if (iv[k]) merged[k] = iv[k];
-    });
-    if (iv.resume) merged.candidateInfo = iv.resume;
-    merged.interviewers = iv.interviewers || [];
+    if (iv) {
+        ['jobTitle', 'jobDescription', 'whyThisCompany', 'departureReasons', 'company', 'introduction'].forEach((k) => {
+            if (iv[k]) merged[k] = iv[k];
+        });
+        if (iv.resume) merged.candidateInfo = iv.resume;
+        merged.interviewers = iv.interviewers || [];
+    }
+    if (meRecentLines.length) merged.recentOwnStatements = meRecentLines.join('\n');
     return merged;
 }
 
@@ -1123,6 +1136,10 @@ function openScheduleForm(id, presetDate, presetTime) {
     $('f_tz').value = iv?.tz || LOCAL_TZ;
     $('f_round').value = iv?.round || '';
     $('f_jobTitle').value = iv?.jobTitle || '';
+    $('f_status').value = iv?.status || 'scheduled';
+    $('f_isNextStep').checked = !!iv?.previousInterviewId;
+    $('nextStepFields').classList.toggle('hidden', !iv?.previousInterviewId);
+    populatePrevCompanySelect(iv);
     $('f_introduction').value = iv?.introduction || '';
     $('f_resume').value = iv?.resume || '';
     $('f_jobDescription').value = iv?.jobDescription || '';
@@ -1161,6 +1178,8 @@ function saveInterview() {
         meetingType: $('f_meetingType').value || 'interview',
         date, time, endTime: $('f_endTime').value || null, tz: $('f_tz').value,
         round: $('f_round').value.trim(),
+        status: $('f_status').value || 'scheduled',
+        previousInterviewId: $('f_isNextStep').checked ? ($('f_prevInterviewId').value || null) : null,
         jobTitle: $('f_jobTitle').value.trim(),
         introduction: $('f_introduction').value.trim(),
         resume: $('f_resume').value.trim(),
@@ -1195,6 +1214,138 @@ function deleteInterview() {
 }
 
 // ===========================================================================
+// Hiring process tracking — status + "next round of" linking
+// ===========================================================================
+function getInterviewStatus(iv) { return iv.status || 'scheduled'; }
+function statusLabel(s) { return s === 'done' ? '✅ Done' : s === 'not_done' ? '❌ Not done' : '🕓 Scheduled'; }
+function statusClass(s) { return s === 'done' ? 'done' : s === 'not_done' ? 'not-done' : 'scheduled'; }
+
+function setInterviewStatus(id, status) {
+    const list = getInterviews().slice();
+    const iv = list.find((x) => x.id === id);
+    if (!iv) return;
+    iv.status = status;
+    DATA.interviews = list;
+    pushData();
+}
+
+// Distinct company names across all interviews (optionally excluding one interview's own entry).
+function getCompanyList(excludeId) {
+    const set = new Set();
+    getInterviews().forEach((iv) => {
+        if (iv.id !== excludeId && iv.company && iv.company.trim()) set.add(iv.company.trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+// "Original company" dropdown in the schedule form's next-step section.
+function populatePrevCompanySelect(iv) {
+    const sel = $('f_prevCompany');
+    if (!sel) return;
+    const companies = getCompanyList(iv?.id);
+    sel.innerHTML = '<option value="">(select company)</option>' +
+        companies.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+    const linkedPrev = iv?.previousInterviewId ? getInterviews().find((x) => x.id === iv.previousInterviewId) : null;
+    sel.value = linkedPrev?.company || '';
+    populatePrevInterviewSelect(sel.value, iv);
+}
+
+// "Original interview / round" dropdown, filtered to the chosen company.
+function populatePrevInterviewSelect(company, iv) {
+    const sel = $('f_prevInterviewId');
+    if (!sel) return;
+    const options = getInterviews()
+        .filter((x) => x.id !== iv?.id && (!company || (x.company || '').trim() === company))
+        .sort((a, b) => (interviewEpoch(a) || 0) - (interviewEpoch(b) || 0));
+    sel.innerHTML = '<option value="">(select interview)</option>' + options.map((x) => {
+        const ep = interviewEpoch(x);
+        const when = !isNaN(ep) ? fmtInTz(ep, x.tz || LOCAL_TZ) : '';
+        const label = [x.title, x.round, when].filter(Boolean).join(' · ');
+        return `<option value="${x.id}"${x.id === iv?.previousInterviewId ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+    }).join('');
+}
+
+// Groups every interview into hiring-process "chains" by walking previousInterviewId
+// links back to a root, then re-orders each chain forward from that root.
+function buildHiringChains() {
+    const list = getInterviews();
+    const byId = new Map(list.map((iv) => [iv.id, iv]));
+    function findRoot(iv) {
+        const seen = new Set();
+        let cur = iv;
+        while (cur.previousInterviewId && byId.has(cur.previousInterviewId) && !seen.has(cur.id)) {
+            seen.add(cur.id);
+            cur = byId.get(cur.previousInterviewId);
+        }
+        return cur;
+    }
+    const chains = new Map(); // rootId -> interviews[]
+    list.forEach((iv) => {
+        const root = findRoot(iv);
+        if (!chains.has(root.id)) chains.set(root.id, []);
+        chains.get(root.id).push(iv);
+    });
+    const result = [];
+    chains.forEach((items, rootId) => {
+        const root = byId.get(rootId);
+        const ordered = [];
+        const remaining = new Set(items.map((x) => x.id));
+        let current = root;
+        while (current && remaining.has(current.id)) {
+            ordered.push(current);
+            remaining.delete(current.id);
+            current = items.find((x) => x.previousInterviewId === current.id) || null;
+        }
+        Array.from(remaining).map((id) => byId.get(id))
+            .sort((a, b) => (interviewEpoch(a) || 0) - (interviewEpoch(b) || 0))
+            .forEach((x) => ordered.push(x));
+        result.push({ root, rounds: ordered });
+    });
+    result.sort((a, b) => {
+        const latest = (chain) => Math.max(...chain.rounds.map((r) => interviewEpoch(r) || 0));
+        return latest(b) - latest(a);
+    });
+    return result;
+}
+
+function renderTrack() {
+    const chains = buildHiringChains();
+    const box = $('trackList');
+    if (!chains.length) { box.innerHTML = '<p class="muted">No interviews scheduled yet.</p>'; return; }
+    box.innerHTML = chains.map(({ root, rounds }) => {
+        const person = root.personId ? getPersons().find((p) => p.id === root.personId) : null;
+        const doneCount = rounds.filter((r) => getInterviewStatus(r) === 'done').length;
+        const roundsHtml = rounds.map((r) => {
+            const ep = interviewEpoch(r);
+            const when = !isNaN(ep) ? fmtInTz(ep, r.tz || LOCAL_TZ) : '(no date)';
+            return `
+            <div class="track-round">
+                <div>
+                    <strong>${escapeHtml(r.title)}</strong>${r.round ? ' · ' + escapeHtml(r.round) : ''}
+                    <div class="muted track-round-when">${when}</div>
+                </div>
+                <select class="track-status-sel status-${statusClass(getInterviewStatus(r))}" data-iv="${r.id}">
+                    <option value="scheduled"${getInterviewStatus(r) === 'scheduled' ? ' selected' : ''}>🕓 Scheduled</option>
+                    <option value="done"${getInterviewStatus(r) === 'done' ? ' selected' : ''}>✅ Done</option>
+                    <option value="not_done"${getInterviewStatus(r) === 'not_done' ? ' selected' : ''}>❌ Not done</option>
+                </select>
+            </div>`;
+        }).join('');
+        return `
+        <div class="track-chain">
+            <div class="track-chain-head">
+                <span><strong>${escapeHtml(root.company || '(no company)')}</strong>${person ? ' · ' + escapeHtml(person.name || '') : ''}</span>
+                <span class="muted track-chain-count">${doneCount}/${rounds.length} done</span>
+            </div>
+            ${roundsHtml}
+        </div>`;
+    }).join('');
+    box.querySelectorAll('.track-status-sel').forEach((sel) => {
+        sel.onchange = () => { setInterviewStatus(sel.dataset.iv, sel.value); sel.className = 'track-status-sel status-' + statusClass(sel.value); };
+    });
+}
+
+// ===========================================================================
 // Interview detail
 // ===========================================================================
 function detailRow(k, v) { return v ? `<div class="detail-row"><span class="k">${k}</span><span class="v">${escapeHtml(v)}</span></div>` : ''; }
@@ -1223,6 +1374,11 @@ function openDetail(id) {
         detailRow('Meeting type', mt ? `${mt.icon} ${mt.label}` : (iv.meetingType || '')) +
         detailRow('Company', iv.company) +
         detailRow('Round / stage', iv.round) +
+        detailRow('Status', statusLabel(getInterviewStatus(iv))) +
+        (iv.previousInterviewId ? detailRow('Next step of', (() => {
+            const prev = getInterviews().find((x) => x.id === iv.previousInterviewId);
+            return prev ? [prev.title, prev.round, prev.company].filter(Boolean).join(' · ') : '(interview no longer exists)';
+        })()) : '') +
         detailRow('Target job title', iv.jobTitle) +
         detailRow('Introduction', iv.introduction) +
         detailRow('Resume', iv.resume) +
@@ -1334,69 +1490,111 @@ function pickMime() {
 function setStatus(text, cls) { const el = $('status'); el.textContent = text; el.className = 'status ' + cls; }
 
 async function startListening() {
-    const source = $('audioSource').value;
+    if (TEST_MIC_AS_INTERVIEWER) {
+        // Test mode: capture only the mic and treat it as the interviewer's
+        // voice, so the transcript + Get-answer flow can be exercised solo.
+        try {
+            micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (e) { setStatus('Microphone permission denied', 'error'); return; }
+        audioStreams.interviewer = new MediaStream(micStream.getAudioTracks());
+        audioStreams.interviewer.getAudioTracks()[0].addEventListener('ended', () => { if (listening) stopListening(); });
+        listening = true;
+        $('listenBtn').textContent = '■ Stop';
+        $('listenBtn').classList.add('active');
+        setStatus('Listening… (test mode: mic = interviewer)', 'listening');
+        recordSegment('interviewer');
+        return;
+    }
+
     try {
-        mediaStream = source === 'screen'
-            ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
-            : await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (e) { setStatus('Permission denied', 'error'); return; }
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) { setStatus('Microphone permission denied', 'error'); return; }
+    try {
+        mediaStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    } catch (e) {
+        stopTracks();
+        setStatus('Screen/tab share permission denied', 'error');
+        return;
+    }
 
-    const audioTracks = mediaStream.getAudioTracks();
-    if (audioTracks.length === 0) { setStatus('No audio track — re-share and tick "Share audio"', 'error'); stopTracks(); return; }
-    audioTracks[0].addEventListener('ended', () => { if (listening) stopListening(); });
+    const interviewerTracks = mediaStream.getAudioTracks();
+    if (interviewerTracks.length === 0) {
+        setStatus('No shared audio — re-share and tick "Share tab audio"', 'error');
+        stopTracks();
+        return;
+    }
+    interviewerTracks[0].addEventListener('ended', () => { if (listening) stopListening(); });
 
-    audioStream = new MediaStream(audioTracks);
+    audioStreams.me = new MediaStream(micStream.getAudioTracks());
+    audioStreams.interviewer = new MediaStream(interviewerTracks);
     listening = true;
     $('listenBtn').textContent = '■ Stop';
     $('listenBtn').classList.add('active');
     setStatus('Listening…', 'listening');
-    recordSegment();
+    recordSegment('me');
+    recordSegment('interviewer');
 }
 
-function recordSegment() {
-    if (!listening || !audioStream) return;
+function recordSegment(speaker) {
+    if (!listening || !audioStreams[speaker]) return;
     const chunks = [];
     const mimeType = pickMime();
     let rec;
-    try { rec = new MediaRecorder(audioStream, mimeType ? { mimeType } : undefined); }
+    try { rec = new MediaRecorder(audioStreams[speaker], mimeType ? { mimeType } : undefined); }
     catch (e) { setStatus('Recording not supported', 'error'); return; }
-    recorder = rec;
+    recorders[speaker] = rec;
     rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
     rec.onstop = () => {
         const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
-        if (blob.size > 2500) transcribeBlob(blob);
-        if (listening) recordSegment();
+        if (blob.size > 2500) transcribeBlob(blob, speaker);
+        if (listening) recordSegment(speaker);
     };
     rec.start();
     setTimeout(() => { if (rec.state !== 'inactive') rec.stop(); }, SEGMENT_MS);
 }
 
-async function transcribeBlob(blob) {
+async function transcribeBlob(blob, speaker) {
     const fd = new FormData();
     fd.append('audio', blob, 'segment.webm');
     try {
         const res = await api('/api/transcribe', { method: 'POST', body: fd });
         const data = await res.json();
         const text = (data.text || '').trim();
-        if (text) appendTranscript(text);
+        if (text) appendTranscript(text, speaker);
     } catch (e) { console.warn('transcribe failed', e.message); }
 }
 
-function appendTranscript(text) {
+function appendTranscript(text, speaker) {
     const t = $('transcript');
-    t.textContent = (t.textContent ? t.textContent + ' ' : '') + text;
+    const row = document.createElement('div');
+    row.className = `transcript-row ${speaker}`;
+    row.innerHTML = `<div class="bubble"><span class="bubble-label">${speaker === 'me' ? 'You' : 'Interviewer'}</span>${escapeHtml(text)}</div>`;
+    t.appendChild(row);
     t.scrollTop = t.scrollHeight;
-    $('questionInput').value = text;
-    if ($('autoRespond').checked && !answering) getAnswer(text);
+    if (speaker === 'interviewer') {
+        // Accumulate until "Get answer" is clicked — a question can span
+        // more than one 5s segment before the interviewer finishes asking it.
+        interviewerBuffer.push(text);
+        $('questionInput').value = interviewerBuffer.join(' ');
+    } else {
+        meRecentLines.push(text);
+        if (meRecentLines.length > 8) meRecentLines = meRecentLines.slice(-8);
+    }
 }
 
 function stopTracks() {
     if (mediaStream) mediaStream.getTracks().forEach((tr) => tr.stop());
-    mediaStream = null; audioStream = null;
+    if (micStream) micStream.getTracks().forEach((tr) => tr.stop());
+    mediaStream = null; micStream = null;
+    audioStreams.me = null; audioStreams.interviewer = null;
 }
 function stopListening() {
     listening = false;
-    if (recorder && recorder.state !== 'inactive') { try { recorder.stop(); } catch (e) {} }
+    Object.keys(recorders).forEach((speaker) => {
+        const rec = recorders[speaker];
+        if (rec && rec.state !== 'inactive') { try { rec.stop(); } catch (e) {} }
+        recorders[speaker] = null;
+    });
     stopTracks();
     $('listenBtn').textContent = '▶ Start';
     $('listenBtn').classList.remove('active');
@@ -1404,19 +1602,25 @@ function stopListening() {
 }
 
 // ===========================================================================
-// AI answer (SSE streaming)
+// AI answer (SSE streaming) — history of paired question/answer rows
 // ===========================================================================
-async function getAnswer(questionArg) {
-    if (answering) return;
-    const question = (questionArg || $('questionInput').value || '').trim();
-    if (!question) return;
+function appendQaRow(questionLabel, questionText) {
+    const box = $('answer');
+    if (box.querySelector('p.muted')) box.innerHTML = '';
+    const row = document.createElement('div');
+    row.className = 'qa-row';
+    row.innerHTML =
+        `<div class="qa-question"><span class="bubble-label">${escapeHtml(questionLabel)}</span>${escapeHtml(questionText)}</div>` +
+        `<div class="qa-answer"><span class="cursor">▍</span></div>`;
+    box.appendChild(row);
+    box.scrollTop = box.scrollHeight;
+    return row.querySelector('.qa-answer');
+}
 
-    answering = true;
-    setStatus('Thinking…', 'working');
-    const answerEl = $('answer');
-    answerEl.innerHTML = '<span class="cursor">▍</span>';
+// Streams a chat completion for `question` into `answerEl`. Shared by the
+// visible (immediate) flow and the silent background-prepared flow.
+async function streamAnswerInto(question, answerEl, answerBox) {
     let full = '';
-
     try {
         const res = await api('/api/chat', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1442,7 +1646,7 @@ async function getAnswer(questionArg) {
                 if (payload.delta) {
                     full += payload.delta;
                     answerEl.innerHTML = marked.parse(full) + '<span class="cursor">▍</span>';
-                    answerEl.scrollTop = answerEl.scrollHeight;
+                    if (answerBox) answerBox.scrollTop = answerBox.scrollHeight;
                 } else if (payload.error) {
                     answerEl.innerHTML = `<p class="error">Error: ${payload.error}</p>`;
                 }
@@ -1454,11 +1658,34 @@ async function getAnswer(questionArg) {
             history.push({ role: 'assistant', content: full });
             if (history.length > 20) history = history.slice(-20);
         }
-        setStatus(listening ? 'Listening…' : 'Idle', listening ? 'listening' : 'idle');
+        return true;
     } catch (e) {
         answerEl.innerHTML = `<p class="error">Request failed: ${e.message}</p>`;
-        setStatus('Error', 'error');
-    } finally { answering = false; }
+        return false;
+    }
+}
+
+// "Get answer" — takes whatever the interviewer has said since the last
+// click (accumulated into the question box, editable before sending),
+// clears the previous AI answer, and streams a fresh one for the current
+// question only. Context (resume, JD, introduction, why-this-company,
+// departure reasons, and the candidate's own recent statements) comes from
+// getProfileData().
+async function getAnswer() {
+    if (answering) return;
+    const question = ($('questionInput').value || '').trim();
+    if (!question) return;
+    interviewerBuffer = [];   // consumed — next interviewer speech starts a fresh question
+
+    answering = true;
+    setStatus('Thinking…', 'working');
+    const answerBox = $('answer');
+    answerBox.innerHTML = '';   // remove the old answer before showing the new one
+    const answerEl = appendQaRow('Interviewer', question);
+    const ok = await streamAnswerInto(question, answerEl, answerBox);
+    setStatus(ok ? (listening ? 'Listening…' : 'Idle') : 'Error', ok ? (listening ? 'listening' : 'idle') : 'error');
+    answering = false;
+    $('questionInput').value = '';
 }
 
 // ===========================================================================
@@ -1472,6 +1699,7 @@ async function analyzeScreen() {
         catch (e) { setStatus('Screen share cancelled', 'idle'); return; }
     }
     setStatus('Analyzing screen…', 'working');
+    const answerEl = appendQaRow('Screen', 'Analyze current screen');
     try {
         const track = stream.getVideoTracks()[0];
         const video = document.createElement('video');
@@ -1493,9 +1721,12 @@ async function analyzeScreen() {
         const data = await res.json();
         let pretty = data.text || '';
         try { pretty = '```json\n' + JSON.stringify(JSON.parse(pretty), null, 2) + '\n```'; } catch (e) {}
-        $('answer').innerHTML = marked.parse('### Screen analysis\n\n' + pretty);
+        answerEl.innerHTML = marked.parse(pretty);
         setStatus(listening ? 'Listening…' : 'Idle', listening ? 'listening' : 'idle');
-    } catch (e) { setStatus('Analysis failed', 'error'); console.error(e); }
+    } catch (e) {
+        answerEl.innerHTML = `<p class="error">Analysis failed: ${e.message}</p>`;
+        setStatus('Analysis failed', 'error'); console.error(e);
+    }
 }
 
 // ===========================================================================
@@ -1512,6 +1743,14 @@ $('renamePersonBtn').onclick = renamePerson;
 $('deletePersonBtn').onclick = deletePerson;
 
 $('scheduleBtn').onclick = () => { $('calendar').classList.remove('hidden'); renderCalendar(); };
+$('trackBtn').onclick = () => { renderTrack(); $('trackModal').classList.remove('hidden'); };
+$('f_isNextStep').addEventListener('change', () => {
+    $('nextStepFields').classList.toggle('hidden', !$('f_isNextStep').checked);
+});
+$('f_prevCompany').addEventListener('change', () => {
+    const iv = editingInterviewId ? getInterviews().find((x) => x.id === editingInterviewId) : null;
+    populatePrevInterviewSelect($('f_prevCompany').value, iv);
+});
 $('calPrev').onclick = () => {
     if (calView === 'day') { shiftDate(-1); }
     else if (calView === 'week') { shiftDate(-7); }
@@ -1563,10 +1802,12 @@ $('listenBtn').onclick = () => (listening ? stopListening() : startListening());
 $('askBtn').onclick = () => getAnswer();
 $('captureBtn').onclick = analyzeScreen;
 $('clearBtn').onclick = () => {
-    $('transcript').textContent = '';
+    $('transcript').innerHTML = '';
     $('questionInput').value = '';
     $('answer').innerHTML = '<p class="muted">Answers will stream here.</p>';
     history = [];
+    interviewerBuffer = [];
+    meRecentLines = [];
 };
 $('questionInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) getAnswer(); });
 

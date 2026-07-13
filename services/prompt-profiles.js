@@ -13,6 +13,7 @@ const MEETING_PROFILES = {
         buildSystemPrompt({ profileData, kbContext, lastQuestion }) {
             const {
                 jobTitle, jobDescription, candidateInfo, projects, departureReasons, whyThisCompany,
+                introduction, recentOwnStatements,
                 // Personal / background details
                 fullName, dob, gender, nationality, workAuth, maritalStatus, phone, email, address,
                 fatherInfo, motherInfo, siblings, spouseChildren, languages, education, links, hobbies,
@@ -229,7 +230,13 @@ ${departureReasons || '(none specified — infer from archetype guidance above)'
 
 - **Why This Company:**
 ${whyThisCompany || '(none specified — infer from Job Description above)'}
+
+- **Candidate's prepared self-introduction for THIS interview** (use as the basis for "tell me about yourself" / opening rapport — don't recite verbatim, stay consistent with it):
+${introduction || '(not provided)'}
 ${kbContext ? `\n- **Knowledge Base (resume, etc. — also authoritative):**\n${kbContext}` : ''}
+
+- **Candidate's own recent statements earlier in THIS live interview** (verbatim, from the microphone transcript — this is what YOU already said out loud; stay consistent, never contradict or re-answer something already covered unless asked to elaborate):
+${recentOwnStatements || '(none yet — this is early in the interview)'}
 
 **Current transcript / question:** "${lastQuestion}"
 
