@@ -13,7 +13,7 @@ const MEETING_PROFILES = {
         buildSystemPrompt({ profileData, kbContext, lastQuestion }) {
             const {
                 jobTitle, jobDescription, candidateInfo, projects, departureReasons, whyThisCompany,
-                introduction, recentOwnStatements,
+                introduction, recentOwnStatements, round, notes,
                 // Personal / background details
                 fullName, dob, gender, nationality, workAuth, maritalStatus, phone, email, address,
                 fatherInfo, motherInfo, siblings, spouseChildren, languages, education, links, hobbies,
@@ -209,7 +209,7 @@ If a question is ambiguous about who it refers to, **always default to: I am the
 
 **Context (authoritative source — pull facts ONLY from here):**
 
-- **Target Role:** ${jobTitle || '(not specified)'}
+- **Target Role:** ${jobTitle || '(not specified)'}${round ? ` — **Round/stage:** ${round}` : ''}
 - **Job Description:**
 ${jobDescription || '(not provided)'}
 

@@ -327,8 +327,9 @@ app.post('/api/chat', async (req, res) => {
     // Build the system prompt server-side (matches the desktop app)
     const systemPrompt = buildPrompt(profileData, meetingType, '', question);
 
-    // Keep the recent history bounded (simple cap; system prompt carries context)
-    const recent = Array.isArray(history) ? history.slice(-10) : [];
+    // Keep the recent history bounded — wide enough to cover a full interview's
+    // worth of prior questions/answers, not just the last couple of exchanges.
+    const recent = Array.isArray(history) ? history.slice(-60) : [];
     const messages = [
         { role: 'system', content: systemPrompt },
         ...recent,

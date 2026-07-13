@@ -33,8 +33,18 @@ let lastBubbleTextEl = null;    // the <span class="bubble-text"> currently bein
 // closings, acknowledgements) — dropped so they don't clutter the transcript.
 // Anything with actual content alongside them (e.g. "Thanks, and what stack
 // did you use?") does NOT match and is kept in full.
-const FILLER_RE = /^(thanks?( you)?( very much| so much)?|no,? thank you|bye+([\s-]?bye)?|goodbye|good\s?bye|great|nice|cool|perfect|awesome|sounds good|got it|okay|ok|alright|all right|have a (good|nice|great) (one|day)|take care|see you( soon| later| around)?|no problem|you'?re welcome|welcome)[.,!\s]*$/i;
-function isFiller(text) { return FILLER_RE.test(text.trim()); }
+// Matches exactly ONE filler phrase, nothing more.
+const FILLER_PHRASE_RE = /^(thanks?( you)?( very much| so much| a lot| a ton| a bunch)?|no,? thank you|bye+([\s-]?bye)?|goodbye|good\s?bye|great|nice|cool|perfect|awesome|sounds good|got it|okay|ok|alright|all right|have a (good|nice|great) (one|day)|take care|see you( soon| later| around)?|no problem|you'?re welcome|welcome|you|yeah|yep|mm-?hmm|uh-?huh)$/i;
+
+// A segment is filler only if EVERY sentence in it is pure filler — e.g.
+// "Thank you. Bye." is two chained filler phrases and must also be dropped,
+// not just a single "Great." Anything with even one real sentence survives
+// in full (never partially edited).
+function isFiller(text) {
+    const sentences = text.split(/[.!?,]+/).map((s) => s.trim()).filter(Boolean);
+    if (!sentences.length) return true;
+    return sentences.every((s) => FILLER_PHRASE_RE.test(s));
+}
 
 // Real flow: microphone = you, shared tab/screen audio (e.g. the Google Meet
 // window) = the interviewer. Flip back to true only if you need to test the
@@ -538,7 +548,7 @@ function getProfileData() {
     const global = linkedPerson || getGlobalProfile();
     const merged = { ...global };
     if (iv) {
-        ['jobTitle', 'jobDescription', 'whyThisCompany', 'departureReasons', 'company', 'introduction'].forEach((k) => {
+        ['jobTitle', 'jobDescription', 'whyThisCompany', 'departureReasons', 'company', 'introduction', 'round', 'notes'].forEach((k) => {
             if (iv[k]) merged[k] = iv[k];
         });
         if (iv.resume) merged.candidateInfo = iv.resume;
@@ -1566,7 +1576,23 @@ function pickMime() {
 }
 function setStatus(text, cls) { const el = $('status'); el.textContent = text; el.className = 'status ' + cls; }
 
+// Resets the transcript, the pending question, the AI answer, and every
+// buffer that feeds context into it — used by both the "Clear" button and
+// automatically whenever "Start" begins a new listening session, so a new
+// session never mixes in transcript/context left over from a previous one.
+function resetTranscriptAndAnswer() {
+    $('transcript').innerHTML = '';
+    $('questionInput').value = '';
+    $('answer').innerHTML = '<p class="muted">Answers will stream here.</p>';
+    history = [];
+    interviewerBuffer = [];
+    meRecentLines = [];
+    lastSpeaker = null;
+    lastBubbleTextEl = null;
+}
+
 async function startListening() {
+    resetTranscriptAndAnswer();
     if (TEST_MIC_AS_INTERVIEWER) {
         // Test mode: capture only the mic and treat it as the interviewer's
         // voice, so the transcript + Get-answer flow can be exercised solo.
@@ -1670,7 +1696,7 @@ function appendTranscript(text, speaker) {
         $('questionInput').value = interviewerBuffer.join(' ');
     } else {
         meRecentLines.push(text);
-        if (meRecentLines.length > 8) meRecentLines = meRecentLines.slice(-8);
+        if (meRecentLines.length > 24) meRecentLines = meRecentLines.slice(-24);
     }
 }
 
@@ -1750,7 +1776,7 @@ async function streamAnswerInto(question, answerEl, answerBox) {
         if (full) {
             history.push({ role: 'user', content: question });
             history.push({ role: 'assistant', content: full });
-            if (history.length > 20) history = history.slice(-20);
+            if (history.length > 60) history = history.slice(-60);
         }
         return true;
     } catch (e) {
@@ -1909,16 +1935,7 @@ $('notifyBtn').onclick = requestNotifyPermission;
 $('listenBtn').onclick = () => (listening ? stopListening() : startListening());
 $('askBtn').onclick = () => getAnswer();
 $('captureBtn').onclick = analyzeScreen;
-$('clearBtn').onclick = () => {
-    $('transcript').innerHTML = '';
-    $('questionInput').value = '';
-    $('answer').innerHTML = '<p class="muted">Answers will stream here.</p>';
-    history = [];
-    interviewerBuffer = [];
-    meRecentLines = [];
-    lastSpeaker = null;
-    lastBubbleTextEl = null;
-};
+$('clearBtn').onclick = resetTranscriptAndAnswer;
 $('questionInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) getAnswer(); });
 
 // ✕ close buttons on any modal card
