@@ -36,12 +36,10 @@ let lastBubbleTextEl = null;    // the <span class="bubble-text"> currently bein
 const FILLER_RE = /^(thanks?( you)?( very much| so much)?|no,? thank you|bye+([\s-]?bye)?|goodbye|good\s?bye|great|nice|cool|perfect|awesome|sounds good|got it|okay|ok|alright|all right|have a (good|nice|great) (one|day)|take care|see you( soon| later| around)?|no problem|you'?re welcome|welcome)[.,!\s]*$/i;
 function isFiller(text) { return FILLER_RE.test(text.trim()); }
 
-// TEMPORARY TEST MODE — flip to false once testing with a real second audio
-// source (e.g. sharing the Google Meet tab) is available. While true, only
-// the microphone is captured and it is treated as the INTERVIEWER's voice,
-// so the transcript + Get-answer flow can be exercised solo. Your own "me"
-// column simply never appears since nothing is captured for it.
-const TEST_MIC_AS_INTERVIEWER = true;
+// Real flow: microphone = you, shared tab/screen audio (e.g. the Google Meet
+// window) = the interviewer. Flip back to true only if you need to test the
+// transcript + Get-answer flow solo, without a real second audio source.
+const TEST_MIC_AS_INTERVIEWER = false;
 
 // Shared, server-backed data
 let DATA = { rev: -1, persons: [], activePersonId: null, interviews: [], timeSlots: [] };
