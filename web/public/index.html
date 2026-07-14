@@ -30,10 +30,6 @@
         <header>
             <div class="brand">🎯 Interview Assistant <span class="tag">web</span></div>
             <div class="header-controls">
-                <select id="identitySwitch" class="identity-switch" title="Switch who you are">
-                    <option value="chris">👤 Chris</option>
-                    <option value="amrit">👤 Amrit</option>
-                </select>
                 <select id="meetingType" title="Meeting type"></select>
                 <button id="scheduleBtn" class="ghost">📅 Schedule</button>
                 <button id="trackBtn" class="ghost" title="View hiring process history across all rounds">🗂 Track</button>
@@ -179,6 +175,19 @@
                 <div class="field"><label>Start time *</label><input id="f_time" type="time" /></div>
                 <div class="field"><label>End time</label><input id="f_endTime" type="time" /></div>
                 <div class="field field-wide"><label>Timezone</label><select id="f_tz"></select></div>
+                <div class="field"><label>Hiring step</label>
+                    <select id="f_hiringStep">
+                        <option value="">—</option>
+                        <option value="1st">1st</option>
+                        <option value="2nd">2nd</option>
+                        <option value="3rd">3rd</option>
+                        <option value="4th">4th</option>
+                        <option value="5th">5th</option>
+                        <option value="6th">6th</option>
+                        <option value="7th">7th</option>
+                        <option value="8th">8th</option>
+                    </select>
+                </div>
                 <div class="field"><label>Round / stage</label><input id="f_round" placeholder="e.g. Technical, HR, Final" /></div>
                 <div class="field"><label>Target job title</label><input id="f_jobTitle" /></div>
                 <div class="field"><label>Status</label>

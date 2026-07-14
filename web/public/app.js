@@ -145,7 +145,6 @@ async function init() {
 async function startApp() {
     $('login').classList.add('hidden');
     $('app').classList.remove('hidden');
-    $('identitySwitch').value = identity;
     updateChatPeerLabel();
     await loadMeetingTypes();
     populateTimezones();
@@ -837,6 +836,7 @@ function setupCalDrag(grid, view, tz) {
         const cell = getCell(e);
         if (!cell || e.button !== 0) return;
         if (e.target.classList.contains('cal-event') || e.target.classList.contains('wg-event') ||
+            e.target.classList.contains('iv-block') || e.target.classList.contains('iv-cont') ||
             e.target.classList.contains('cal-ts') || e.target.classList.contains('wg-ts') ||
             e.target.classList.contains('wg-ts-cont')) return;
         dragStart = cell;
@@ -1170,6 +1170,7 @@ function openScheduleForm(id, presetDate, presetTime) {
     $('f_time').value = iv?.time || presetTime || '';
     $('f_endTime').value = iv?.endTime || '';
     $('f_tz').value = iv?.tz || LOCAL_TZ;
+    $('f_hiringStep').value = iv?.hiringStep || '';
     $('f_round').value = iv?.round || '';
     $('f_jobTitle').value = iv?.jobTitle || '';
     $('f_status').value = iv?.status || 'scheduled';
@@ -1213,6 +1214,7 @@ function saveInterview() {
         meetingUrl: $('f_meetingUrl').value.trim(),
         meetingType: $('f_meetingType').value || 'interview',
         date, time, endTime: $('f_endTime').value || null, tz: $('f_tz').value,
+        hiringStep: $('f_hiringStep').value || '',
         round: $('f_round').value.trim(),
         status: $('f_status').value || 'scheduled',
         previousInterviewId: $('f_isNextStep').checked ? ($('f_prevInterviewId').value || null) : null,
@@ -1296,7 +1298,7 @@ function populatePrevInterviewSelect(company, iv) {
     sel.innerHTML = '<option value="">(select interview)</option>' + options.map((x) => {
         const ep = interviewEpoch(x);
         const when = !isNaN(ep) ? fmtInTz(ep, x.tz || LOCAL_TZ) : '';
-        const label = [x.title, x.round, when].filter(Boolean).join(' · ');
+        const label = [x.title, x.hiringStep, x.round, when].filter(Boolean).join(' · ');
         return `<option value="${x.id}"${x.id === iv?.previousInterviewId ? ' selected' : ''}>${escapeHtml(label)}</option>`;
     }).join('');
 }
@@ -1357,7 +1359,7 @@ function renderTrack() {
             return `
             <div class="track-round">
                 <div>
-                    <strong>${escapeHtml(r.title)}</strong>${r.round ? ' · ' + escapeHtml(r.round) : ''}
+                    <strong>${escapeHtml(r.title)}</strong>${[r.hiringStep, r.round].filter(Boolean).length ? ' · ' + escapeHtml([r.hiringStep, r.round].filter(Boolean).join(' · ')) : ''}
                     <div class="muted track-round-when">${when}</div>
                 </div>
                 <select class="track-status-sel status-${statusClass(getInterviewStatus(r))}" data-iv="${r.id}">
@@ -1409,6 +1411,7 @@ function openDetail(id) {
         meetingUrlHtml +
         detailRow('Meeting type', mt ? `${mt.icon} ${mt.label}` : (iv.meetingType || '')) +
         detailRow('Company', iv.company) +
+        detailRow('Hiring step', iv.hiringStep) +
         detailRow('Round / stage', iv.round) +
         detailRow('Status', statusLabel(getInterviewStatus(iv))) +
         (iv.previousInterviewId ? detailRow('Next step of', (() => {
@@ -1870,12 +1873,6 @@ $('loginBtn').onclick = doLogin;
 $('loginPassword').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
 $('logoutBtn').onclick = logout;
 
-$('identitySwitch').onchange = () => {
-    identity = $('identitySwitch').value;
-    localStorage.setItem('ia_identity', identity);
-    updateChatPeerLabel();
-    renderChat();
-};
 $('chatSendBtn').onclick = sendChatMessage;
 $('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChatMessage(); });
 
