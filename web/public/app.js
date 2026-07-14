@@ -1946,7 +1946,14 @@ $('questionInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' &&
 
 // ✕ close buttons on any modal card
 document.querySelectorAll('.modal-close').forEach((btn) => {
-    btn.onclick = () => { const ov = btn.closest('.overlay'); if (ov) ov.classList.add('hidden'); };
+    btn.onclick = () => {
+        const ov = btn.closest('.overlay');
+        if (!ov) return;
+        ov.classList.add('hidden');
+        // These two are opened from the calendar view, so ✕ should return to it
+        // (same as their explicit Close/Cancel buttons) instead of leaving nothing visible.
+        if (ov.id === 'interviewDetail' || ov.id === 'scheduleForm') $('calendar').classList.remove('hidden');
+    };
 });
 
 // Keep the two timezone calendar panes scrolled together — scrolling either
